@@ -1264,6 +1264,11 @@ async function sendChat() {
             body: JSON.stringify({ message: msg })
         });
         const data = await res.json();
+        
+        if (data.debug_error) {
+            alert("Backend Error: " + data.debug_error);
+        }
+
         // Remove loading indicators before staggered render
         if (loadDiv) loadDiv.remove();
         if (desktop) hideDesktopTyping();

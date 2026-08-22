@@ -894,6 +894,17 @@ def api_debug():
         import traceback
         return traceback.format_exc(), 500
 
+@app.route('/test-chat', methods=['GET'])
+def test_chat():
+    """Test the LLM call directly in browser."""
+    try:
+        messages = [{"role": "user", "content": "hi"}]
+        resp = call_llm(messages)
+        return jsonify({"status": "SUCCESS", "response": resp})
+    except Exception as e:
+        import traceback
+        return traceback.format_exc(), 500
+
 # ------------------------------------------------------------------
 # Routes — TTS Debug (helps diagnose PythonAnywhere whitelist/network issues)
 # ------------------------------------------------------------------
