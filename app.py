@@ -450,7 +450,7 @@ def call_groq(messages):
     client = Groq(api_key=GROQ_API_KEY)
     resp = client.chat.completions.create(
         messages=messages,
-        model="llama-3.3-70b-versatile",
+        model="llama3-70b-8192",
         response_format={"type": "json_object"},
         temperature=0.7,
         max_tokens=1024
