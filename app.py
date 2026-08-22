@@ -188,14 +188,20 @@ def decrypt_text(text):
 # ------------------------------------------------------------------
 # Database — per-user
 # ------------------------------------------------------------------
-def get_db(user_id='A'):
+def get_db(user_id='A', skip_init=False):
     db_name = f'user_{user_id}.db'
     conn = sqlite3.connect(db_name)
     conn.row_factory = sqlite3.Row
+    if not skip_init:
+        c = conn.cursor()
+        try:
+            c.execute("SELECT 1 FROM chat_history LIMIT 1")
+        except sqlite3.OperationalError:
+            # Tables don't exist, initialize them
+            init_db_schema(conn)
     return conn
 
-def init_db(user_id='A'):
-    conn = get_db(user_id)
+def init_db_schema(conn):
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS routine (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -233,6 +239,10 @@ def init_db(user_id='A'):
         category TEXT DEFAULT 'milestone'
     )''')
     conn.commit()
+
+def init_db(user_id='A'):
+    conn = get_db(user_id, skip_init=True)
+    init_db_schema(conn)
     conn.close()
 
 def init_all_users():
