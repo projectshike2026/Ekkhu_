@@ -237,6 +237,12 @@ def init_all_users():
         init_db(user['id'])
     print(f"[INIT] {len(users)} user database(s) ready.")
 
+# Initialize DBs on startup
+try:
+    init_all_users()
+except Exception as _e:
+    print(f"[INIT] Error initializing DBs: {_e}")
+
 # ------------------------------------------------------------------
 # Chat helpers
 # ------------------------------------------------------------------
