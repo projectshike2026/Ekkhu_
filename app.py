@@ -100,19 +100,33 @@ def get_current_user_id():
 # Encryption helpers
 # ------------------------------------------------------------------
 def _get_cipher():
+    if not HAS_CRYPTO:
+        return None
     key = os.getenv('EKKU_SECRET_KEY')
-    if not key and HAS_CRYPTO:
-        key_file = 'ekku.key'
-        if os.path.exists(key_file):
+    key_file = 'ekku.key'
+    # Try env key first
+    if key:
+        try:
+            return Fernet(key.encode())
+        except Exception:
+            print("[CIPHER] EKKU_SECRET_KEY is invalid, falling back to key file.")
+    # Try key file
+    if os.path.exists(key_file):
+        try:
             with open(key_file, 'rb') as f:
-                key = f.read().decode()
-        else:
-            key = Fernet.generate_key().decode()
-            with open(key_file, 'w') as f:
-                f.write(key)
-    return Fernet(key.encode()) if (key and HAS_CRYPTO) else None
+                file_key = f.read().strip()
+            return Fernet(file_key)
+        except Exception:
+            print("[CIPHER] ekku.key is invalid, generating new key.")
+    # Generate a new key and save it
+    new_key = Fernet.generate_key()
+    with open(key_file, 'wb') as f:
+        f.write(new_key)
+    print("[CIPHER] Generated new Fernet key and saved to ekku.key")
+    return Fernet(new_key)
 
 _CIPHER = _get_cipher()
+
 
 def encrypt_text(text):
     if _CIPHER is None:
