@@ -23,6 +23,36 @@ try:
 except ImportError:
     HAS_TTS = False
 
+# ------------------------------------------------------------------
+# PythonAnywhere Proxy Auto-Patch
+# ------------------------------------------------------------------
+# PythonAnywhere free tier blocks direct outbound TCP (including WebSocket).
+# All connections must go through its HTTP proxy at proxy.server:3128.
+# edge-tts uses aiohttp WebSocket which doesn't auto-detect this proxy.
+#
+# Fix: probe proxy.server:3128 at startup — if reachable (= we're on PA),
+# monkey-patch aiohttp.ClientSession.ws_connect to silently inject the proxy.
+# This makes edge-tts work on PA without any code changes to the TTS route.
+# On local dev proxy.server doesn't exist, so the patch is never applied.
+# ------------------------------------------------------------------
+_PA_PROXY_URL = "http://proxy.server:3128"
+_USING_PA_PROXY = False
+try:
+    import socket as _socket
+    _s = _socket.create_connection(("proxy.server", 3128), timeout=1)
+    _s.close()
+    # proxy.server:3128 is reachable → we are on PythonAnywhere
+    import aiohttp as _aiohttp
+    _orig_ws_connect = _aiohttp.ClientSession.ws_connect
+    def _proxied_ws_connect(self, url, **kwargs):
+        kwargs.setdefault("proxy", _PA_PROXY_URL)
+        return _orig_ws_connect(self, url, **kwargs)
+    _aiohttp.ClientSession.ws_connect = _proxied_ws_connect
+    _USING_PA_PROXY = True
+    print(f"[PROXY] PythonAnywhere detected → patched aiohttp.ws_connect to use {_PA_PROXY_URL}")
+except Exception:
+    pass  # Not on PythonAnywhere, or aiohttp not installed yet — no patch needed
+
 # Setup
 load_dotenv(override=True)
 app = Flask(__name__)
@@ -791,17 +821,29 @@ def tts():
         buf.seek(0)
         return buf.read()
 
-    try:
-        audio_bytes = try_edge_tts()
-        print("[TTS] edge-tts succeeded")
-    except Exception as edge_err:
-        print(f"[TTS] edge-tts failed ({edge_err}), falling back to gTTS")
+    # On PythonAnywhere, edge-tts TCP/WebSocket is permanently blocked.
+    # Skip it entirely to avoid the 15-second timeout penalty per request.
+    if _USING_PA_PROXY:
+        print("[TTS] PythonAnywhere detected → skipping edge-tts, using gTTS directly")
         try:
             audio_bytes = try_gtts()
-            print("[TTS] gTTS fallback succeeded")
+            print("[TTS] gTTS succeeded")
         except Exception as gtts_err:
-            print(f"[TTS] gTTS also failed: {gtts_err}")
-            return jsonify({"error": f"Both TTS engines failed. edge-tts: {edge_err} | gTTS: {gtts_err}"}), 500
+            print(f"[TTS] gTTS failed: {gtts_err}")
+            return jsonify({"error": f"gTTS failed: {gtts_err}"}), 500
+    else:
+        # Local dev: try edge-tts first (best quality), fallback to gTTS
+        try:
+            audio_bytes = try_edge_tts()
+            print("[TTS] edge-tts succeeded")
+        except Exception as edge_err:
+            print(f"[TTS] edge-tts failed ({edge_err}), falling back to gTTS")
+            try:
+                audio_bytes = try_gtts()
+                print("[TTS] gTTS fallback succeeded")
+            except Exception as gtts_err:
+                print(f"[TTS] gTTS also failed: {gtts_err}")
+                return jsonify({"error": f"Both TTS engines failed. edge-tts: {edge_err} | gTTS: {gtts_err}"}), 500
 
     audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
     return jsonify({"audio": audio_b64})
@@ -823,6 +865,8 @@ def tts_debug():
 
     report = {
         "python_version": sys.version,
+        "proxy_patch_active": _USING_PA_PROXY,
+        "proxy_url": _PA_PROXY_URL if _USING_PA_PROXY else "not active (local dev or proxy unreachable)",
         "edge_tts_version": None,
         "network_check": {},
         "asyncio_test": None,
