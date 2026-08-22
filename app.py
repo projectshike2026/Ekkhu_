@@ -725,6 +725,7 @@ def tts():
     try:
         import edge_tts
         import asyncio
+        import threading
 
         voice = "bn-BD-NabanitaNeural"
         prosody_map = {
@@ -749,20 +750,129 @@ def tts():
 
         processed = clean_text(text)
 
-        async def generate_audio():
-            communicate = edge_tts.Communicate(processed, voice, rate=p['rate'], pitch=p['pitch'])
-            audio_data = b""
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_data += chunk["data"]
-            return audio_data
+        result = {"audio": None, "error": None}
+        def run_async():
+            async def generate_audio():
+                communicate = edge_tts.Communicate(processed, voice, rate=p['rate'], pitch=p['pitch'])
+                audio_data = b""
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        audio_data += chunk["data"]
+                return audio_data
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                result["audio"] = loop.run_until_complete(generate_audio())
+            except Exception as e:
+                result["error"] = str(e)
+            finally:
+                loop.close()
 
-        audio_bytes = asyncio.run(generate_audio())
-        audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+        thread = threading.Thread(target=run_async)
+        thread.start()
+        thread.join()
+
+        if result["error"]:
+            raise Exception(result["error"])
+        
+        audio_b64 = base64.b64encode(result["audio"]).decode('utf-8')
         return jsonify({"audio": audio_b64})
     except Exception as e:
         print("TTS error:", e)
         return jsonify({"error": str(e)}), 500
+
+# ------------------------------------------------------------------
+# Routes — TTS Debug (helps diagnose PythonAnywhere whitelist/network issues)
+# ------------------------------------------------------------------
+@app.route('/tts-debug', methods=['GET'])
+def tts_debug():
+    """
+    Diagnostic endpoint to figure out why TTS is failing on PythonAnywhere.
+    Visit: /tts-debug  in your browser to see a full report.
+    """
+    import sys
+    import socket
+    import asyncio
+    import threading
+    import traceback
+
+    report = {
+        "python_version": sys.version,
+        "edge_tts_version": None,
+        "network_check": {},
+        "asyncio_test": None,
+        "tts_synthesis_test": None,
+        "tts_synthesis_error": None,
+        "overall": "UNKNOWN"
+    }
+
+    # 1. Check edge_tts version
+    try:
+        import edge_tts
+        report["edge_tts_version"] = getattr(edge_tts, '__version__', 'unknown')
+    except ImportError as e:
+        report["edge_tts_version"] = f"NOT INSTALLED: {e}"
+
+    # 2. Network connectivity checks
+    targets = [
+        ("speech.platform.bing.com", 443),
+        ("tts.speech.microsoft.com", 443),
+    ]
+    for host, port in targets:
+        try:
+            sock = socket.create_connection((host, port), timeout=5)
+            sock.close()
+            report["network_check"][f"{host}:{port}"] = "✅ REACHABLE"
+        except Exception as e:
+            report["network_check"][f"{host}:{port}"] = f"❌ BLOCKED: {e}"
+
+    # 3. Asyncio sanity check
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        async def _ping():
+            return "ok"
+        result = loop.run_until_complete(_ping())
+        loop.close()
+        report["asyncio_test"] = f"✅ new_event_loop works: {result}"
+    except Exception as e:
+        report["asyncio_test"] = f"❌ asyncio broken: {e}"
+
+    # 4. Full TTS synthesis test (same code path as /tts)
+    synthesis_result = {"audio_bytes": None, "error": None}
+    def _run_tts():
+        async def _gen():
+            import edge_tts as _et
+            c = _et.Communicate("হ্যালো একু", "bn-BD-NabanitaNeural", rate="-10%", pitch="+0Hz")
+            data = b""
+            async for chunk in c.stream():
+                if chunk["type"] == "audio":
+                    data += chunk["data"]
+            return data
+        try:
+            lp = asyncio.new_event_loop()
+            asyncio.set_event_loop(lp)
+            synthesis_result["audio_bytes"] = len(lp.run_until_complete(_gen()))
+            lp.close()
+        except Exception as e:
+            synthesis_result["error"] = traceback.format_exc()
+
+    t = threading.Thread(target=_run_tts)
+    t.start()
+    t.join(timeout=30)
+
+    if synthesis_result["error"]:
+        report["tts_synthesis_test"] = "❌ FAILED"
+        report["tts_synthesis_error"] = synthesis_result["error"]
+        report["overall"] = "BROKEN — see tts_synthesis_error"
+    elif synthesis_result["audio_bytes"]:
+        report["tts_synthesis_test"] = f"✅ SUCCESS — got {synthesis_result['audio_bytes']} bytes of audio"
+        report["overall"] = "✅ TTS IS WORKING"
+    else:
+        report["tts_synthesis_test"] = "❌ Got 0 bytes (empty audio)"
+        report["overall"] = "BROKEN — empty audio"
+
+    return jsonify(report), 200
 
 # ------------------------------------------------------------------
 # Routes — Chat
