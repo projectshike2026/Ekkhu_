@@ -1366,9 +1366,42 @@ function hideDesktopTyping() {
 }
 
 // ── TTS ──────────────────────────────────────────────────────────
+function browserTTSFallback(text) {
+    if (!('speechSynthesis' in window)) {
+        if (chatMode === 'voice') setVoiceUIState('idle');
+        return;
+    }
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+    
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'bn-BD'; // Bengali
+    utter.rate = 1.0;
+    
+    utter.onstart = () => {
+        if (chatMode === 'voice') {
+            const waves = isDesktopDevice() ? document.getElementById('desk-voice-waves') : document.getElementById('mob-voice-waves');
+            if (waves) waves.style.opacity = '1';
+        }
+    };
+    
+    utter.onend = () => {
+        if (chatMode === 'voice') setVoiceUIState('idle');
+    };
+    
+    utter.onerror = (e) => {
+        console.error("Browser TTS error:", e);
+        if (chatMode === 'voice') setVoiceUIState('idle');
+    };
+    
+    window.speechSynthesis.speak(utter);
+}
+
 async function speakText(text, emotion = "neutral") {
     if (!voiceEnabled) return;
     if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    window.speechSynthesis.cancel(); // Stop any browser TTS playing
+    
     try {
         const res = await fetch('/tts', {
             method: 'POST',
@@ -1394,12 +1427,12 @@ async function speakText(text, emotion = "neutral") {
             
             currentAudio.play();
         } else {
-            console.error("TTS failed: No audio returned", data.error || '');
-            if (chatMode === 'voice') setVoiceUIState('idle');
+            console.warn("Server TTS failed (rate limit/blocked), falling back to browser TTS", data.error || '');
+            browserTTSFallback(text);
         }
     } catch (e) { 
-        console.error("TTS failed", e);
-        if (chatMode === 'voice') setVoiceUIState('idle');
+        console.warn("Server TTS network error, falling back to browser TTS", e);
+        browserTTSFallback(text);
     }
 }
 
