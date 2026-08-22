@@ -66,9 +66,14 @@ app = Flask(__name__)
 USERS_FILE = 'users.json'
 
 # API Keys
-GROQ_API_KEY    = os.getenv('GROQ_API_KEY')
+GROQ_API_KEY    = os.getenv('GROQ_API_KEY')  # Disabled for now
 GEMINI_API_KEY_1 = os.getenv('GEMINI_API_KEY_1')
 GEMINI_API_KEY_2 = os.getenv('GEMINI_API_KEY_2')
+
+# Startup diagnostics
+print(f"[STARTUP] GEMINI_API_KEY_1: {'SET (len={})'.format(len(GEMINI_API_KEY_1)) if GEMINI_API_KEY_1 else 'NOT SET — chat will fail!'}")
+print(f"[STARTUP] GEMINI_API_KEY_2: {'SET' if GEMINI_API_KEY_2 else 'NOT SET'}")
+print(f"[STARTUP] GROQ_API_KEY: {'SET' if GROQ_API_KEY else 'NOT SET'}")
 
 # Default accent colors for new accounts
 ACCENT_COLORS = ['#af101a','#6366f1','#10B981','#F59E0B','#0ea5e9','#8b5cf6','#ec4899','#14b8a6']
@@ -502,14 +507,17 @@ def call_gemini(messages, api_key):
     raise Exception("All Gemini models failed")
 
 def call_llm(messages):
-    """Priority: Gemini Key 1 → Gemini Key 2 → Groq (final fallback)"""
+    """Priority: Gemini Key 1 → Gemini Key 2 (Groq disabled)"""
     providers = []
     if GEMINI_API_KEY_1:
         providers.append(('gemini-1', lambda: call_gemini(messages, GEMINI_API_KEY_1)))
     if GEMINI_API_KEY_2:
         providers.append(('gemini-2', lambda: call_gemini(messages, GEMINI_API_KEY_2)))
-    if GROQ_API_KEY:
-        providers.append(('groq', lambda: call_groq(messages)))
+    # Groq disabled — uncomment below to re-enable:
+    # if GROQ_API_KEY:
+    #     providers.append(('groq', lambda: call_groq(messages)))
+    if not providers:
+        raise Exception("No API keys set! Set GEMINI_API_KEY_1 in environment variables.")
     errors = []
     for name, fn in providers:
         try:
@@ -859,6 +867,27 @@ def tts():
 
     audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
     return jsonify({"audio": audio_b64})
+
+@app.route('/api-debug', methods=['GET'])
+def api_debug():
+    """Visit /api-debug to verify your API keys are loaded correctly on Render."""
+    import google.generativeai as genai
+    report = {
+        "GEMINI_API_KEY_1": "SET" if GEMINI_API_KEY_1 else "NOT SET",
+        "GEMINI_API_KEY_2": "SET" if GEMINI_API_KEY_2 else "NOT SET",
+        "gemini_test": "not run"
+    }
+    if GEMINI_API_KEY_1:
+        try:
+            genai.configure(api_key=GEMINI_API_KEY_1)
+            model = genai.GenerativeModel('gemini-3.5-flash')
+            resp = model.generate_content("Respond with just the word: WORKING")
+            report["gemini_test"] = f"✅ SUCCESS: {resp.text.strip()}"
+        except Exception as e:
+            report["gemini_test"] = f"❌ FAILED: {type(e).__name__}: {e}"
+    else:
+        report["gemini_test"] = "❌ SKIPPED — GEMINI_API_KEY_1 not set"
+    return jsonify(report), 200
 
 # ------------------------------------------------------------------
 # Routes — TTS Debug (helps diagnose PythonAnywhere whitelist/network issues)
