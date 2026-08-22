@@ -486,7 +486,7 @@ def call_gemini(messages, api_key):
             content = json.dumps(mock_json)
             
         gm.append({'role': role, 'parts': [content]})
-    for model_name in ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.5-flash']:
+    for model_name in ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']:
         try:
             model = genai.GenerativeModel(model_name, system_instruction=system_part)
             resp = model.generate_content(
