@@ -722,12 +722,21 @@ def tts():
     emotion = data.get('emotion', 'neutral').lower()
     if not text:
         return jsonify({"error": "No text"}), 400
-    try:
-        import edge_tts
-        import asyncio
-        import threading
 
-        voice = "bn-BD-NabanitaNeural"
+    def clean_text(raw):
+        # Strip any XML-like tags just in case they leak through
+        cleaned = re.sub(r'</?[a-zA-Z]+[^>]*>', '', raw)
+        cleaned = re.sub(r'[\U0001F300-\U0001F9FF\u2600-\u27BF]', '', cleaned)
+        cleaned = re.sub(r'[ \t]+', ' ', cleaned)
+        cleaned = re.sub(r'\n+', ' ', cleaned)
+        return cleaned.strip()
+
+    processed = clean_text(text)
+
+    # ── PRIMARY: edge-tts (best quality, Bengali neural voice) ──────────────
+    # Works locally. Fails on PythonAnywhere free (WebSocket TCP blocked).
+    def try_edge_tts():
+        import edge_tts, asyncio, threading
         prosody_map = {
             'sad':     dict(rate="-25%", pitch="-8Hz"),
             'lonely':  dict(rate="-20%", pitch="-6Hz"),
@@ -739,21 +748,14 @@ def tts():
             'happy':   dict(rate="-2%",  pitch="+5Hz"),
         }
         p = prosody_map.get(emotion, prosody_map['neutral'])
-
-        def clean_text(raw):
-            # Strip any XML-like tags just in case they leak through
-            cleaned = re.sub(r'</?[a-zA-Z]+[^>]*>', '', raw)
-            cleaned = re.sub(r'[\U0001F300-\U0001F9FF\u2600-\u27BF]', '', cleaned)
-            cleaned = re.sub(r'[ \t]+', ' ', cleaned)
-            cleaned = re.sub(r'\n+', ' ', cleaned)
-            return cleaned.strip()
-
-        processed = clean_text(text)
-
         result = {"audio": None, "error": None}
+
         def run_async():
             async def generate_audio():
-                communicate = edge_tts.Communicate(processed, voice, rate=p['rate'], pitch=p['pitch'])
+                communicate = edge_tts.Communicate(
+                    processed, "bn-BD-NabanitaNeural",
+                    rate=p['rate'], pitch=p['pitch']
+                )
                 audio_data = b""
                 async for chunk in communicate.stream():
                     if chunk["type"] == "audio":
@@ -768,18 +770,41 @@ def tts():
             finally:
                 loop.close()
 
-        thread = threading.Thread(target=run_async)
-        thread.start()
-        thread.join()
-
+        t = threading.Thread(target=run_async)
+        t.start()
+        t.join(timeout=15)  # 15s timeout — if blocked, fail fast
         if result["error"]:
             raise Exception(result["error"])
-        
-        audio_b64 = base64.b64encode(result["audio"]).decode('utf-8')
-        return jsonify({"audio": audio_b64})
-    except Exception as e:
-        print("TTS error:", e)
-        return jsonify({"error": str(e)}), 500
+        if not result["audio"]:
+            raise Exception("edge-tts returned empty audio")
+        return result["audio"]
+
+    # ── FALLBACK: gTTS (Google TTS) ─────────────────────────────────────────
+    # Works on PythonAnywhere free — uses plain HTTPS to translate.google.com
+    # which IS whitelisted and routes through the proxy correctly.
+    def try_gtts():
+        from gtts import gTTS
+        import io
+        tts_obj = gTTS(text=processed, lang='bn', slow=False)
+        buf = io.BytesIO()
+        tts_obj.write_to_fp(buf)
+        buf.seek(0)
+        return buf.read()
+
+    try:
+        audio_bytes = try_edge_tts()
+        print("[TTS] edge-tts succeeded")
+    except Exception as edge_err:
+        print(f"[TTS] edge-tts failed ({edge_err}), falling back to gTTS")
+        try:
+            audio_bytes = try_gtts()
+            print("[TTS] gTTS fallback succeeded")
+        except Exception as gtts_err:
+            print(f"[TTS] gTTS also failed: {gtts_err}")
+            return jsonify({"error": f"Both TTS engines failed. edge-tts: {edge_err} | gTTS: {gtts_err}"}), 500
+
+    audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+    return jsonify({"audio": audio_b64})
 
 # ------------------------------------------------------------------
 # Routes — TTS Debug (helps diagnose PythonAnywhere whitelist/network issues)
