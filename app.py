@@ -870,24 +870,29 @@ def tts():
 
 @app.route('/api-debug', methods=['GET'])
 def api_debug():
-    """Visit /api-debug to verify your API keys are loaded correctly on Render."""
-    import google.generativeai as genai
-    report = {
-        "GEMINI_API_KEY_1": "SET" if GEMINI_API_KEY_1 else "NOT SET",
-        "GEMINI_API_KEY_2": "SET" if GEMINI_API_KEY_2 else "NOT SET",
-        "gemini_test": "not run"
-    }
-    if GEMINI_API_KEY_1:
-        try:
-            genai.configure(api_key=GEMINI_API_KEY_1)
-            model = genai.GenerativeModel('gemini-3.5-flash')
-            resp = model.generate_content("Respond with just the word: WORKING")
-            report["gemini_test"] = f"✅ SUCCESS: {resp.text.strip()}"
-        except Exception as e:
-            report["gemini_test"] = f"❌ FAILED: {type(e).__name__}: {e}"
-    else:
-        report["gemini_test"] = "❌ SKIPPED — GEMINI_API_KEY_1 not set"
-    return jsonify(report), 200
+    try:
+        report = {
+            "GEMINI_API_KEY_1": "SET" if GEMINI_API_KEY_1 else "NOT SET",
+            "GEMINI_API_KEY_2": "SET" if GEMINI_API_KEY_2 else "NOT SET",
+            "gemini_test": "not run",
+            "groq_test": "disabled"
+        }
+        import google.generativeai as genai
+        if GEMINI_API_KEY_1:
+            try:
+                genai.configure(api_key=GEMINI_API_KEY_1)
+                model = genai.GenerativeModel('gemini-3.5-flash')
+                resp = model.generate_content("Respond with just the word: WORKING")
+                report["gemini_test"] = f"✅ SUCCESS: {resp.text.strip()}"
+            except Exception as e:
+                report["gemini_test"] = f"❌ FAILED: {type(e).__name__}: {e}"
+        else:
+            report["gemini_test"] = "❌ SKIPPED — GEMINI_API_KEY_1 not set"
+        from flask import jsonify
+        return jsonify(report), 200
+    except Exception as e:
+        import traceback
+        return traceback.format_exc(), 500
 
 # ------------------------------------------------------------------
 # Routes — TTS Debug (helps diagnose PythonAnywhere whitelist/network issues)
