@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
+<title>EKKU - Academic OS</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode:"class",
+    theme:{extend:{
+      colors:{
+        "primary":"#af101a","on-primary":"#ffffff","primary-container":"#d32f2f","on-primary-container":"#fff2f0",
+        "primary-fixed":"#ffdad6","primary-fixed-dim":"#ffb3ac","on-primary-fixed":"#410003","on-primary-fixed-variant":"#930010",
+        "secondary":"#5f5e5e","on-secondary":"#ffffff","secondary-container":"#e2dfde","on-secondary-container":"#636262",
+        "tertiary":"#565858","on-tertiary":"#ffffff","tertiary-container":"#6e7070","on-tertiary-container":"#f4f4f4",
+        "error":"#ba1a1a","on-error":"#ffffff","error-container":"#ffdad6","on-error-container":"#93000a",
+        "surface":"#fbf9f9","on-surface":"#1b1c1c","surface-variant":"#e3e2e2","on-surface-variant":"#5b403d",
+        "surface-container-lowest":"#ffffff","surface-container-low":"#f5f3f3","surface-container":"#efeded",
+        "surface-container-high":"#e9e8e7","surface-container-highest":"#e3e2e2","surface-bright":"#fbf9f9","surface-dim":"#dbdad9",
+        "outline":"#8f6f6c","outline-variant":"#e4beba",
+        "inverse-surface":"#303031","inverse-on-surface":"#f2f0f0","inverse-primary":"#ffb3ac",
+        "background":"#fbf9f9","on-background":"#1b1c1c",
+        "surface-tint":"#ba1a20",
+        "emerald-success":"#10B981","warning-amber":"#F59E0B"
+      },
+      fontFamily:{
+        "body-lg":["Inter"],"headline-md":["Inter"],"label-sm":["Inter"],"label-md":["Inter"],
+        "body-md":["Inter"],"headline-lg":["Inter"],"display-lg":["Inter"],
+        "status-bar":["JetBrains Mono"],"code-snippet":["JetBrains Mono"],"label-caps":["JetBrains Mono"]
+      },
+      fontSize:{
+        "body-lg":["18px",{lineHeight:"28px",fontWeight:"400"}],
+        "headline-md":["24px",{lineHeight:"32px",fontWeight:"600"}],
+        "label-sm":["12px",{lineHeight:"16px",letterSpacing:"0.02em",fontWeight:"500"}],
+        "label-md":["14px",{lineHeight:"20px",letterSpacing:"0.01em",fontWeight:"600"}],
+        "body-md":["16px",{lineHeight:"24px",fontWeight:"400"}],
+        "headline-lg":["32px",{lineHeight:"40px",letterSpacing:"-0.01em",fontWeight:"700"}],
+        "display-lg":["48px",{lineHeight:"56px",letterSpacing:"-0.02em",fontWeight:"700"}],
+        "display-stat":["36px",{lineHeight:"44px",letterSpacing:"-0.02em",fontWeight:"700"}],
+        "status-bar":["12px",{lineHeight:"16px",fontWeight:"500"}],
+        "code-snippet":["13px",{lineHeight:"20px",fontWeight:"400"}],
+        "label-caps":["11px",{lineHeight:"16px",letterSpacing:"0.05em",fontWeight:"600"}],
+        "body-sm":["14px",{lineHeight:"20px",fontWeight:"400"}]
+      },
+      spacing:{
+        "top-bar-height":"56px","sidebar-width":"240px","status-bar-height":"28px",
+        "card-padding":"20px","gutter":"16px","container-margin":"24px"
+      },
+      borderRadius:{DEFAULT:"0.125rem",lg:"0.25rem",xl:"0.5rem",full:"0.75rem"}
+    }}
+  }
+</script>
+<style>
+  *{font-family:'Inter',sans-serif}
+  .view{display:none}.view.active{display:block;animation:viewIn .4s cubic-bezier(.22,1,.36,1) both}
+  @keyframes viewIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes scaleIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+  @keyframes pinShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(7px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}
+  @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes toastOut{from{opacity:1}to{opacity:0;transform:translateX(20px)}}
+  @keyframes dotPulse{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+  .animate-fade-up{animation:fadeUp .5s cubic-bezier(.22,1,.36,1) both}
+  .animate-fade-in{animation:fadeIn .4s ease both}
+  .animate-scale-in{animation:scaleIn .35s cubic-bezier(.22,1,.36,1) both}
+  .pin-shake{animation:pinShake .4s ease}
+  .toast-in{animation:toastIn .3s cubic-bezier(.22,1,.36,1) both}
+  .toast-out{animation:toastOut .3s ease both}
+
+  /* Scrollbar */
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#e4beba;border-radius:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* Glass card */
+  .glass-card{
+    background:linear-gradient(180deg,rgba(255,255,255,.88),rgba(255,255,255,.65));
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(228,190,186,.45);
+    box-shadow:0 1px 2px rgba(27,28,28,.04),0 8px 24px -8px rgba(27,28,28,.1);
+    transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease
+  }
+  .glass-card:hover{transform:translateY(-1px);box-shadow:0 2px 4px rgba(27,28,28,.05),0 16px 40px -12px rgba(175,16,26,.15);border-color:rgba(175,16,26,.25)}
+  .gradient-text{background:linear-gradient(120deg,#af101a,#d32f2f 45%,#f59e0b);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  /* Typing dots */
+  .typing-dots{display:inline-flex;gap:4px;align-items:center;padding:2px 0}
+  .typing-dots span{width:7px;height:7px;border-radius:50%;background:#af101a;opacity:.25;animation:dotPulse 1.2s infinite}
+  .typing-dots span:nth-child(2){animation-delay:.15s}
+  .typing-dots span:nth-child(3){animation-delay:.3s}
+
+  /* Markdown */
+  .markdown-body{line-height:1.7;word-wrap:break-word}
+  .markdown-body p{margin-bottom:.6rem}
+  .markdown-body ul{list-style:disc;padding-left:1.2rem;margin-bottom:.6rem}
+  .markdown-body ol{list-style:decimal;padding-left:1.2rem;margin-bottom:.6rem}
+  .markdown-body li{margin-bottom:.2rem}
+  .markdown-body blockquote{border-left:3px solid #af101a;padding-left:.8rem;margin:.6rem 0;color:#5b403d;font-style:italic}
+  .markdown-body :not(pre)>code{background:#efeded;border:1px solid #e4beba;border-radius:4px;padding:1px 5px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#930010}
+  .markdown-body pre{font-family:'JetBrains Mono',monospace}
+  .markdown-body table{border-collapse:collapse;width:100%;margin-bottom:.7rem;font-size:13px}
+  .markdown-body th,.markdown-body td{border:1px solid #e4beba;padding:5px 9px;text-align:left}
+  .markdown-body th{background:#efeded;font-weight:600}
+  .code-block{background:#1b1c1c}.code-block code{font-family:'JetBrains Mono',monospace;color:#f2f0f0}
+  .emotion-tag{font-size:10px;padding:2px 6px;border-radius:10px;background:rgba(0,0,0,.06);color:#666;margin-left:6px;text-transform:uppercase;letter-spacing:.04em}
+
+  /* ── Mobile chat fixed ── */
+  @media(max-width:767px){
+    #mobile-chat-card{
+      position:fixed!important;top:64px!important;bottom:64px!important;
+      left:0!important;right:0!important;height:auto!important;
+      margin:0!important;border-radius:0!important;z-index:20;
+      display:flex;flex-direction:column
+    }
+  }
+
+  /* ── Auth Screen ── */
+  #auth-screen{background:linear-gradient(145deg,#140002 0%,#2e0008 50%,#1b1c1c 100%)}
+  .auth-blob1{background:radial-gradient(circle,rgba(175,16,26,.4) 0%,transparent 70%)}
+  .auth-blob2{background:radial-gradient(circle,rgba(99,102,241,.25) 0%,transparent 70%)}
+
+  /* Auth tab */
+  .auth-tab-active{background:rgba(255,255,255,.18);color:#fff}
+  .auth-tab-inactive{color:rgba(255,255,255,.45)}
+  .auth-tab-inactive:hover{color:rgba(255,255,255,.7)}
+
+  /* User list item in login */
+  .user-login-item{
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+    cursor:pointer;transition:all .2s ease
+  }
+  .user-login-item:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25);transform:translateY(-1px)}
+  .user-login-item:active{transform:scale(.97)}
+
+  /* PIN dots */
+  .pin-dot{width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,.25);transition:all .15s ease}
+  .pin-dot.filled{background:#fff;border-color:#fff;transform:scale(1.1)}
+  .pin-dot.error{background:#ef4444;border-color:#ef4444}
+
+  /* Numpad */
+  .numpad-btn{
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);color:#fff;
+    font-size:20px;font-weight:600;border-radius:16px;height:58px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    transition:background .15s ease,transform .1s ease;
+    -webkit-tap-highlight-color:transparent;user-select:none
+  }
+  .numpad-btn:hover{background:rgba(255,255,255,.16)}
+  .numpad-btn:active{background:rgba(255,255,255,.24);transform:scale(.93)}
+  .numpad-btn.del{background:rgba(255,255,255,.04);font-size:18px}
+
+  /* Form inputs on dark bg */
+  .dark-input{
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#fff;
+    border-radius:12px;padding:12px 16px;width:100%;font-size:14px;
+    transition:border-color .2s ease;outline:none
+  }
+  .dark-input::placeholder{color:rgba(255,255,255,.3)}
+  .dark-input:focus{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.1)}
+
+  .pb-safe{padding-bottom:env(safe-area-inset-bottom,0px)}
+</style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface text-body-sm antialiased overflow-hidden">
+
+<!-- ══════════════════════════════════════════════════════
+  AUTH SCREEN — always shown until login complete
+══════════════════════════════════════════════════════ -->
+<div id="auth-screen" class="fixed inset-0 z-[100] flex items-center justify-center px-4">
+  <!-- Blobs -->
+  <div class="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+    <div class="auth-blob1 absolute -top-16 -left-16 w-80 h-80 opacity-60 blur-3xl"></div>
+    <div class="auth-blob2 absolute bottom-0 right-0 w-72 h-72 opacity-40 blur-3xl"></div>
+  </div>
+
+  <div class="relative z-10 w-full max-w-sm animate-scale-in">
+    <!-- Logo -->
+    <div class="flex flex-col items-center mb-7">
+      <div class="w-16 h-16 rounded-2xl flex items-center justify-center shadow-2xl mb-4" style="background:linear-gradient(135deg,#af101a,#d32f2f)">
+        <span class="text-white font-bold text-3xl">E</span>
+      </div>
+      <h1 class="text-white font-bold text-3xl tracking-tight">EKKU</h1>
+      <p class="text-white/40 text-sm mt-1">Your private academic OS</p>
+    </div>
+
+    <!-- Card -->
+    <div class="rounded-3xl p-5" style="background:rgba(22,8,8,0.88);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(20px)">
+      <!-- Tabs -->
+      <div class="flex bg-white/5 rounded-xl p-1 mb-5">
+        <button id="tab-login"  onclick="switchAuthTab('login')"  class="auth-tab-active  auth-tab flex-1 py-2 rounded-lg text-sm font-semibold transition-all">Sign In</button>
+        <button id="tab-create" onclick="switchAuthTab('create')" class="auth-tab-inactive auth-tab flex-1 py-2 rounded-lg text-sm font-semibold transition-all">Create Account</button>
+      </div>
+
+      <!-- ── LOGIN PANEL ── -->
+      <div id="login-panel">
+        <p class="text-white/40 text-xs mb-3">Choose your account</p>
+        <div id="user-login-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+          <!-- Rendered by JS -->
+          <div class="text-white/30 text-center py-6 text-sm">Loading accounts...</div>
+        </div>
+        <div id="no-accounts-msg" class="hidden text-center py-6">
+          <p class="text-white/50 text-sm">No accounts yet.</p>
+          <button onclick="switchAuthTab('create')" class="mt-2 text-sm text-white/70 underline hover:text-white transition-colors">Create the first one →</button>
+        </div>
+      </div>
+
+      <!-- ── CREATE ACCOUNT PANEL ── -->
+      <div id="create-panel" class="hidden space-y-4">
+        <input id="ca-name" type="text" class="dark-input" placeholder="Your name (e.g. Arnob)" autocomplete="off" maxlength="32"/>
+
+        <div>
+          <p class="text-white/40 text-xs mb-2">Choose a 4-digit PIN</p>
+          <div class="flex gap-3 mb-3" id="ca-dots-row">
+            <div class="pin-dot" id="ca-d0"></div>
+            <div class="pin-dot" id="ca-d1"></div>
+            <div class="pin-dot" id="ca-d2"></div>
+            <div class="pin-dot" id="ca-d3"></div>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <button class="numpad-btn" onclick="caKey('1')">1</button>
+            <button class="numpad-btn" onclick="caKey('2')">2</button>
+            <button class="numpad-btn" onclick="caKey('3')">3</button>
+            <button class="numpad-btn" onclick="caKey('4')">4</button>
+            <button class="numpad-btn" onclick="caKey('5')">5</button>
+            <button class="numpad-btn" onclick="caKey('6')">6</button>
+            <button class="numpad-btn" onclick="caKey('7')">7</button>
+            <button class="numpad-btn" onclick="caKey('8')">8</button>
+            <button class="numpad-btn" onclick="caKey('9')">9</button>
+            <div></div>
+            <button class="numpad-btn" onclick="caKey('0')">0</button>
+            <button class="numpad-btn del" onclick="caDel()"><span class="material-symbols-outlined text-[18px]">backspace</span></button>
+          </div>
+        </div>
+
+        <div>
+          <p class="text-white/40 text-xs mb-2">Invite code <span class="text-white/25">(ask the owner)</span></p>
+          <input id="ca-code" type="password" class="dark-input" placeholder="Enter invite code" autocomplete="off"/>
+        </div>
+
+        <p id="ca-error" class="text-red-400 text-xs hidden"></p>
+
+        <button onclick="submitCreateAccount()" class="w-full py-3 rounded-xl font-semibold text-white text-sm transition-all hover:opacity-90 active:scale-98" style="background:linear-gradient(135deg,#af101a,#d32f2f)">
+          Create Account
+        </button>
+      </div>
+    </div>
+
+    <p class="text-white/20 text-xs text-center mt-5">All data stays on your device · Encrypted</p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+  PIN ENTRY SCREEN
+══════════════════════════════════════════════════════ -->
+<div id="pin-screen" class="hidden fixed inset-0 z-[101] flex items-center justify-center px-4" style="background:rgba(14,4,4,0.9);backdrop-filter:blur(24px)">
+  <div class="w-full max-w-xs rounded-3xl p-5 flex flex-col items-center animate-scale-in" style="background:rgba(22,8,8,0.95);border:1px solid rgba(255,255,255,0.1)">
+    <button onclick="showAuthScreen()" class="self-start flex items-center gap-1 text-white/40 hover:text-white/80 text-sm mb-4 transition-colors">
+      <span class="material-symbols-outlined text-[17px]">arrow_back</span> Back
+    </button>
+
+    <div id="pin-avatar" class="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-2xl font-bold mb-2 shadow-lg"></div>
+    <p id="pin-user-name" class="text-white font-semibold text-base mb-1"></p>
+    <p class="text-white/40 text-xs mb-6">Enter your PIN</p>
+
+    <div class="flex gap-4 mb-6" id="pin-dots-row">
+      <div class="pin-dot" id="pd0"></div><div class="pin-dot" id="pd1"></div>
+      <div class="pin-dot" id="pd2"></div><div class="pin-dot" id="pd3"></div>
+    </div>
+
+    <p id="pin-error" class="text-red-400 text-xs mb-4 hidden">Wrong PIN. Try again.</p>
+
+    <div class="grid grid-cols-3 gap-2.5 w-full">
+      <button class="numpad-btn" onclick="pinKey('1')">1</button>
+      <button class="numpad-btn" onclick="pinKey('2')">2</button>
+      <button class="numpad-btn" onclick="pinKey('3')">3</button>
+      <button class="numpad-btn" onclick="pinKey('4')">4</button>
+      <button class="numpad-btn" onclick="pinKey('5')">5</button>
+      <button class="numpad-btn" onclick="pinKey('6')">6</button>
+      <button class="numpad-btn" onclick="pinKey('7')">7</button>
+      <button class="numpad-btn" onclick="pinKey('8')">8</button>
+      <button class="numpad-btn" onclick="pinKey('9')">9</button>
+      <div></div>
+      <button class="numpad-btn" onclick="pinKey('0')">0</button>
+      <button class="numpad-btn del" onclick="pinBackspace()"><span class="material-symbols-outlined text-[18px]">backspace</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+  MAIN APP (hidden until logged in)
+══════════════════════════════════════════════════════ -->
+<div id="app-shell" class="hidden">
+
+<!-- Mobile Header -->
+<header class="md:hidden w-full top-0 sticky bg-surface-container-lowest border-b border-surface-variant z-40">
+  <div class="flex justify-between items-center px-4 h-16">
+    <button id="mob-menu-btn" class="text-on-surface-variant p-2 rounded-full">
+      <span class="material-symbols-outlined">menu</span>
+    </button>
+    <h1 class="font-bold text-xl text-primary tracking-tight">EKKU</h1>
+    <button id="mobile-user-btn" onclick="logOut()" class="w-9 h-9 rounded-full text-white font-bold text-sm shadow flex items-center justify-center" style="background:#af101a">A</button>
+  </div>
+</header>
+
+<!-- Desktop Top Nav -->
+<nav class="hidden md:flex h-top-bar-height fixed top-0 right-0 border-b border-surface-variant bg-surface-container-lowest justify-between items-center px-gutter z-20" style="left:240px;width:calc(100% - 240px)">
+  <div class="flex items-center gap-4">
+    <span class="font-bold text-lg text-on-surface tracking-tight">EKKU</span>
+    <div class="relative hidden md:block">
+      <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[17px]">search</span>
+      <input class="bg-surface border border-surface-variant rounded-lg px-9 py-1.5 text-sm w-56 focus:outline-none focus:border-primary text-on-surface placeholder-on-surface-variant transition-colors" placeholder="Search..." type="text"/>
+    </div>
+  </div>
+  <div class="flex items-center gap-2">
+    <button onclick="openCommandPalette()" class="hidden lg:flex items-center gap-2 text-on-surface-variant hover:text-on-surface bg-surface border border-surface-variant rounded-lg px-3 py-1.5 text-sm hover:border-primary transition-colors">
+      <span class="material-symbols-outlined text-[15px]">terminal</span> Commands
+      <kbd class="text-[10px] px-1.5 py-0.5 rounded bg-surface-variant text-on-surface-variant font-semibold">Ctrl+K</kbd>
+    </button>
+    <button onclick="loadSummary()" class="text-on-surface-variant hover:bg-surface-container-highest rounded-full p-2 transition-colors">
+      <span class="material-symbols-outlined text-[19px]">sync</span>
+    </button>
+    <button id="desk-user-btn" onclick="logOut()" class="w-9 h-9 rounded-full text-white font-bold text-sm shadow hover:opacity-90 transition-opacity flex items-center justify-center" style="background:#af101a" title="Log out">A</button>
+  </div>
+</nav>
+
+<!-- Desktop Sidebar -->
+<aside class="hidden md:flex w-[240px] h-screen fixed left-0 top-0 border-r border-outline-variant/50 bg-surface-container-lowest flex-col p-4 z-30">
+  <div class="flex items-center gap-3 mb-7 px-2">
+    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary-container flex items-center justify-center text-on-primary font-bold text-lg shadow-md">E</div>
+    <div>
+      <h1 class="font-bold text-primary text-xl leading-none">EKKU</h1>
+      <span class="text-[10px] text-on-surface-variant uppercase tracking-widest font-semibold mt-0.5 block">Academic OS</span>
+    </div>
+  </div>
+
+  <nav class="flex-1 overflow-y-auto space-y-4 pr-1">
+    <div>
+      <p class="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant/70">Main</p>
+      <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors cursor-pointer" data-view="dashboard" onclick="showView('dashboard')">
+        <span class="material-symbols-outlined text-[19px]" style="font-variation-settings:'FILL' 1">dashboard</span> Dashboard
+      </a>
+    </div>
+    <div>
+      <p class="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant/70">Study</p>
+      <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors cursor-pointer" data-view="routine" onclick="showView('routine')"><span class="material-symbols-outlined text-[19px]">calendar_month</span> Routine</a>
+      <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors cursor-pointer" data-view="attendance" onclick="showView('attendance')"><span class="material-symbols-outlined text-[19px]">how_to_reg</span> Attendance</a>
+      <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors cursor-pointer" data-view="cgpa" onclick="showView('cgpa')"><span class="material-symbols-outlined text-[19px]">school</span> CGPA</a>
+    </div>
+    <div>
+      <p class="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant/70">Life</p>
+      <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors cursor-pointer" data-view="budget" onclick="showView('budget')"><span class="material-symbols-outlined text-[19px]">payments</span> Budget</a>
+      <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors cursor-pointer" data-view="tasks" onclick="showView('tasks')">
+        <span class="material-symbols-outlined text-[19px]">task_alt</span> Tasks
+        <span id="nav-task-badge" class="hidden ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-on-primary text-[9px] font-bold items-center justify-center"></span>
+      </a>
+    </div>
+    <div>
+      <p class="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant/70">AI</p>
+      <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors cursor-pointer" data-view="chat" onclick="showView('chat')">
+        <span class="material-symbols-outlined text-[19px]">smart_toy</span> Ekku AI
+        <span class="ml-auto flex items-center gap-1 text-[9px] text-emerald-success font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-emerald-success animate-pulse"></span>Online</span>
+      </a>
+    </div>
+    <div>
+      <p class="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant/70">System</p>
+      <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-colors cursor-pointer" data-view="settings" onclick="showView('settings')"><span class="material-symbols-outlined text-[19px]">settings</span> Settings</a>
+    </div>
+  </nav>
+
+  <!-- Profile footer -->
+  <div class="mt-4 pt-4 border-t border-outline-variant/50">
+    <div id="desk-profile" onclick="logOut()" class="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-surface-container transition-colors cursor-pointer">
+      <div id="desk-profile-avatar" class="w-9 h-9 rounded-full text-white flex items-center justify-center font-bold text-sm" style="background:#af101a">A</div>
+      <div class="flex-1 min-w-0">
+        <p id="desk-profile-name" class="text-sm font-semibold text-on-surface truncate">User</p>
+        <p class="text-[10px] text-on-surface-variant">Click to switch account</p>
+      </div>
+      <span class="material-symbols-outlined text-[16px] text-on-surface-variant">logout</span>
+    </div>
+  </div>
+</aside>
+
+<!-- Main Content -->
+<main class="md:ml-[240px] md:mt-top-bar-height h-[calc(100vh-64px-64px)] md:h-[calc(100vh-56px-28px)] overflow-y-auto p-4 md:p-6 bg-surface-container-lowest">
+
+  <!-- ====== DASHBOARD ====== -->
+  <div id="view-dashboard" class="view active">
+    <!-- Mobile dashboard (simplified) -->
+    <div class="md:hidden space-y-4 pb-4">
+      <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-4">
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">Today's Schedule</h2>
+          <span class="text-xs text-on-surface-variant" id="dash-date">...</span>
+        </div>
+        <div id="dash-routine">
+          <div class="text-on-surface-variant text-center py-6 text-sm">Loading...</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-3">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant mb-1">Attendance</p>
+          <p class="text-2xl font-bold text-on-surface" id="dash-att">0%</p>
+        </div>
+        <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-3">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant mb-1">Balance</p>
+          <p class="text-2xl font-bold text-on-surface" id="dash-balance">৳0</p>
+        </div>
+        <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-3">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant mb-1">CGPA</p>
+          <p class="text-2xl font-bold text-on-surface" id="dash-cgpa">0.00</p>
+        </div>
+        <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-3">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant mb-1">Tasks</p>
+          <p class="text-2xl font-bold text-on-surface" id="dash-done">0</p>
+          <p class="text-[10px] text-on-surface-variant">pending</p>
+        </div>
+      </div>
+      <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-4">
+        <div class="flex justify-between items-center mb-2">
+          <h2 class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">Today's Tasks</h2>
+          <button onclick="showView('tasks')" class="text-[10px] text-primary font-semibold">VIEW ALL</button>
+        </div>
+        <div id="dash-tasks" class="space-y-1"></div>
+      </div>
+    </div>
+
+    <!-- Desktop dashboard -->
+    <div class="hidden md:block pb-8">
+      <div class="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+        <div class="absolute -top-32 -right-24 w-[400px] h-[400px] rounded-full bg-primary/8 blur-3xl"></div>
+        <div class="absolute top-1/3 -left-32 w-[360px] h-[360px] rounded-full bg-emerald-success/8 blur-3xl"></div>
+      </div>
+
+      <div class="relative flex flex-wrap items-end justify-between gap-4 mb-7 animate-fade-up">
+        <div>
+          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-fixed border border-primary-fixed-dim/40 mb-3">
+            <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+            <span id="dash-date-dt" class="text-[10px] text-on-primary-fixed-variant uppercase tracking-widest font-semibold">LOADING...</span>
+          </div>
+          <h1 class="text-4xl font-bold text-on-surface tracking-tight">Good <span id="dash-greet-part">Morning</span><span class="gradient-text">.</span></h1>
+          <p class="text-sm text-on-surface-variant mt-1">Everything at a glance.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="showView('chat')" class="flex items-center gap-2 bg-primary text-on-primary rounded-full px-4 py-2.5 text-sm font-semibold hover:shadow-lg hover:shadow-primary/30 hover:-translate-y-0.5 transition-all">
+            <span class="material-symbols-outlined text-[17px]">forum</span> Chat with Ekku
+          </button>
+          <button onclick="openTaskModal()" class="flex items-center gap-2 bg-white text-on-surface border border-outline-variant rounded-full px-4 py-2.5 text-sm font-semibold hover:border-primary hover:text-primary hover:-translate-y-0.5 transition-all">
+            <span class="material-symbols-outlined text-[17px]">add_task</span> Add Task
+          </button>
+        </div>
+      </div>
+
+      <div id="smart-insights" class="mb-5"></div>
+
+      <!-- Stats row -->
+      <div class="grid grid-cols-4 gap-4 mb-5">
+        <div class="glass-card rounded-2xl p-5 animate-fade-up" style="animation-delay:.05s">
+          <div class="flex items-center justify-between mb-3">
+            <span class="w-10 h-10 rounded-xl bg-primary-fixed text-on-primary-fixed-variant flex items-center justify-center"><span class="material-symbols-outlined text-[19px]">how_to_reg</span></span>
+            <span id="d-att-status-chip" class="text-[9px] px-2 py-0.5 rounded-full bg-emerald-success/15 text-emerald-success font-semibold">GOOD</span>
+          </div>
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">Attendance</p>
+          <p class="flex items-baseline gap-1 mt-1"><span id="d-att-pct-dt" class="text-3xl font-bold text-on-surface">0%</span><span class="text-xs text-on-surface-variant">overall</span></p>
+        </div>
+        <div class="glass-card rounded-2xl p-5 animate-fade-up" style="animation-delay:.1s">
+          <div class="flex items-center justify-between mb-3">
+            <span class="w-10 h-10 rounded-xl bg-warning-amber/15 text-warning-amber flex items-center justify-center"><span class="material-symbols-outlined text-[19px]">school</span></span>
+            <span class="text-[9px] px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant font-semibold">/ 4.00</span>
+          </div>
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">CGPA</p>
+          <p class="flex items-baseline gap-1 mt-1"><span id="d-cgpa-dt" class="text-3xl font-bold text-on-surface">0.00</span><span class="text-xs text-on-surface-variant">current</span></p>
+        </div>
+        <div class="glass-card rounded-2xl p-5 animate-fade-up" style="animation-delay:.15s">
+          <div class="flex items-center justify-between mb-3">
+            <span class="w-10 h-10 rounded-xl bg-emerald-success/15 text-emerald-success flex items-center justify-center"><span class="material-symbols-outlined text-[19px]">account_balance_wallet</span></span>
+            <span class="text-[9px] px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant font-semibold">BALANCE</span>
+          </div>
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">Money Left</p>
+          <p class="mt-1"><span id="d-balance-dt" class="text-3xl font-bold text-on-surface">৳0</span></p>
+        </div>
+        <div class="glass-card rounded-2xl p-5 animate-fade-up" style="animation-delay:.2s">
+          <div class="flex items-center justify-between mb-3">
+            <span class="w-10 h-10 rounded-xl bg-primary-container text-on-primary-container flex items-center justify-center"><span class="material-symbols-outlined text-[19px]">task_alt</span></span>
+            <span class="text-[9px] px-2 py-0.5 rounded-full bg-warning-amber/15 text-warning-amber font-semibold">TO DO</span>
+          </div>
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">Pending Tasks</p>
+          <p class="flex items-baseline gap-1 mt-1"><span id="d-pending-dt" class="text-3xl font-bold text-on-surface">0</span><span class="text-xs text-on-surface-variant">tasks</span></p>
+        </div>
+      </div>
+
+      <!-- Lower grid -->
+      <div class="grid grid-cols-12 gap-5">
+        <div class="col-span-12 xl:col-span-7 glass-card rounded-2xl p-5 animate-fade-up" style="animation-delay:.25s">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant flex items-center gap-2"><span class="material-symbols-outlined text-[15px]">calendar_today</span> Today's Schedule</h2>
+            <button onclick="showView('routine')" class="text-[10px] text-primary font-semibold hover:underline">FULL ROUTINE</button>
+          </div>
+          <div id="dash-routine-dt"></div>
+        </div>
+        <div class="col-span-12 xl:col-span-5 glass-card rounded-2xl p-5 animate-fade-up" style="animation-delay:.3s">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant flex items-center gap-2"><span class="material-symbols-outlined text-[15px]">task_alt</span> Today's Tasks</h2>
+            <button onclick="showView('tasks')" class="text-[10px] text-primary font-semibold hover:underline">VIEW ALL</button>
+          </div>
+          <div id="dash-tasks-dt" class="space-y-1"></div>
+          <button onclick="openTaskModal()" class="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-outline-variant text-on-surface-variant text-xs font-semibold hover:border-primary hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-[16px]">add</span> Add task
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== ROUTINE ====== -->
+  <div id="view-routine" class="view">
+    <div class="flex justify-between items-center mb-5">
+      <h2 class="text-2xl font-bold text-on-surface">Class Routine</h2>
+      <button onclick="openRoutineModal()" class="bg-primary text-on-primary rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[17px]">add</span> Add Class
+      </button>
+    </div>
+    <div class="grid grid-cols-7 gap-3" id="routine-grid"></div>
+  </div>
+
+  <!-- ====== ATTENDANCE ====== -->
+  <div id="view-attendance" class="view">
+    <div class="flex justify-between items-center mb-5">
+      <h2 class="text-2xl font-bold text-on-surface">Attendance Tracker</h2>
+      <button onclick="openAttModal()" class="bg-primary text-on-primary rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[17px]">add</span> Add Course
+      </button>
+    </div>
+    <div class="grid grid-cols-12 gap-5">
+      <div class="col-span-12 lg:col-span-8 space-y-3" id="att-list"></div>
+      <div class="col-span-12 lg:col-span-4">
+        <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-5 sticky top-0">
+          <h3 class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant mb-3">Overall</h3>
+          <div class="text-3xl font-bold" id="att-overall">0%</div>
+          <div class="w-full bg-surface-container rounded-full h-2 mt-2 overflow-hidden">
+            <div class="bg-primary h-2 rounded-full" id="att-overall-bar" style="width:0%"></div>
+          </div>
+          <p class="text-xs text-on-surface-variant mt-2">75% minimum required.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== BUDGET ====== -->
+  <div id="view-budget" class="view">
+    <div class="flex justify-between items-center mb-5">
+      <h2 class="text-2xl font-bold text-on-surface">Budget Tracker</h2>
+      <button onclick="openBudgetModal()" class="bg-primary text-on-primary rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[17px]">add</span> Add Entry
+      </button>
+    </div>
+    <div class="grid grid-cols-12 gap-5">
+      <div class="col-span-12 lg:col-span-4 space-y-3">
+        <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-4">
+          <h3 class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant mb-2">Balance</h3>
+          <div class="text-3xl font-bold text-emerald-success" id="bud-balance">৳0</div>
+        </div>
+        <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-4 space-y-2 text-sm">
+          <div class="flex justify-between"><span class="text-on-surface-variant">Income</span><span class="text-emerald-success font-semibold" id="bud-in">৳0</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Spent</span><span class="text-primary font-semibold" id="bud-out">৳0</span></div>
+        </div>
+      </div>
+      <div class="col-span-12 lg:col-span-8 space-y-2" id="bud-list"></div>
+    </div>
+  </div>
+
+  <!-- ====== CGPA ====== -->
+  <div id="view-cgpa" class="view">
+    <div class="flex justify-between items-center mb-5">
+      <h2 class="text-2xl font-bold text-on-surface">CGPA Predictor</h2>
+      <button onclick="openGradeModal()" class="bg-primary text-on-primary rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[17px]">add</span> Add Course
+      </button>
+    </div>
+    <div class="grid grid-cols-12 gap-5">
+      <div class="col-span-12 lg:col-span-8">
+        <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-5 mb-4 flex items-end justify-between">
+          <div><p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant mb-1">CURRENT CGPA</p><span class="text-4xl font-bold" id="cgpa-value">0.00</span></div>
+          <div class="text-right"><p class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant mb-1">TOTAL CREDITS</p><span class="text-2xl font-semibold" id="cgpa-credit">0</span></div>
+        </div>
+        <div class="space-y-2" id="grade-list"></div>
+      </div>
+      <div class="col-span-12 lg:col-span-4">
+        <div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-5">
+          <h3 class="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant mb-4">Predict Target</h3>
+          <div class="space-y-3">
+            <div><label class="text-xs text-on-surface-variant">Target CGPA</label><input id="pred-target" type="number" step="0.01" max="4" value="3.90" class="mt-1 w-full bg-surface border border-surface-variant rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary"/></div>
+            <div><label class="text-xs text-on-surface-variant">Credits Done</label><input id="pred-done" type="number" step="0.5" value="0" class="mt-1 w-full bg-surface border border-surface-variant rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary"/></div>
+            <div><label class="text-xs text-on-surface-variant">Remaining Credits</label><input id="pred-rem" type="number" step="0.5" value="0" class="mt-1 w-full bg-surface border border-surface-variant rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary"/></div>
+            <button onclick="predictCGPA()" class="w-full bg-primary text-on-primary rounded-lg py-2 text-sm font-semibold hover:opacity-90">Predict</button>
+            <div id="pred-result"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== TASKS ====== -->
+  <div id="view-tasks" class="view">
+    <div class="flex justify-between items-center mb-5">
+      <h2 class="text-2xl font-bold text-on-surface">Daily Tasks</h2>
+      <button onclick="openTaskModal()" class="bg-primary text-on-primary rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[17px]">add</span> Add Task
+      </button>
+    </div>
+    <div class="space-y-2" id="task-list"></div>
+  </div>
+
+  <!-- ====== CHAT ====== -->
+  <div id="view-chat" class="view h-full">
+    <!-- Mobile chat -->
+    <div class="md:hidden h-[calc(100vh-64px-64px-16px)] flex flex-col">
+      <div id="mobile-chat-card" class="bg-surface-container-lowest border border-surface-variant overflow-hidden rounded-xl flex-1 flex flex-col">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-surface-variant shrink-0">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed-variant">
+              <span class="material-symbols-outlined text-[17px]">psychology</span>
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-on-surface">Ekku AI</h3>
+              <p class="text-[10px] text-emerald-success flex items-center gap-1"><span class="w-1 h-1 rounded-full bg-emerald-success"></span>Online</p>
+            </div>
+          </div>
+          <button onclick="toggleVoice()" class="text-on-surface-variant hover:bg-surface-container-highest rounded-full p-1.5">
+            <span class="material-symbols-outlined text-[19px]" id="voice-icon">volume_up</span>
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 space-y-3" id="chat-messages" style="min-height:0"></div>
+        <div class="shrink-0 bg-surface-container-lowest border-t border-surface-variant px-3 py-3">
+          <div class="flex items-center gap-2">
+            <button id="mic-btn" onclick="toggleMic()" class="text-on-surface-variant hover:text-primary p-2 rounded-full">
+              <span class="material-symbols-outlined text-[19px]" id="mic-icon">mic</span>
+            </button>
+            <input id="chat-input" class="flex-1 bg-surface-container-low border border-surface-variant rounded-full px-4 py-2.5 focus:outline-none focus:border-primary text-sm" placeholder="Type a message..." type="text"/>
+            <button onclick="sendChat()" class="bg-primary text-on-primary rounded-full w-10 h-10 flex items-center justify-center hover:opacity-90">
+              <span class="material-symbols-outlined text-[17px]" style="font-variation-settings:'FILL' 1">send</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Desktop chat — CLEAN layout -->
+    <div class="hidden md:block">
+      <div class="flex gap-5 h-[calc(100vh-56px-28px-48px)]">
+
+        <!-- Main chat -->
+        <div class="flex-1 glass-card rounded-2xl flex flex-col overflow-hidden min-w-0">
+          <!-- Chat header -->
+          <div class="flex items-center justify-between px-5 py-3.5 border-b border-outline-variant/50 bg-white/60 shrink-0">
+            <div class="flex items-center gap-3">
+              <div class="relative">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary-container flex items-center justify-center text-on-primary shadow-md">
+                  <span class="material-symbols-outlined text-[20px]">smart_toy</span>
+                </div>
+                <span class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-success border-2 border-white"></span>
+              </div>
+              <div>
+                <h3 class="font-bold text-base text-on-surface leading-tight">Ekku — AI Friend</h3>
+                <p class="text-[11px] text-on-surface-variant">Knows your data · 7-day memory · Bangla voice</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1">
+              <button onclick="clearDesktopChat()" title="Clear chat" class="text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors rounded-full p-1.5">
+                <span class="material-symbols-outlined text-[18px]">delete_sweep</span>
+              </button>
+              <button onclick="toggleVoice()" title="Toggle voice" class="text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors rounded-full p-1.5">
+                <span class="material-symbols-outlined text-[18px]" id="desk-voice-icon">volume_up</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Messages -->
+          <div id="desk-chat-messages" class="flex-1 overflow-y-auto p-5 space-y-4 bg-gradient-to-b from-transparent to-primary-fixed/5">
+            <!-- Empty state -->
+            <div id="desk-chat-empty" class="h-full flex flex-col items-center justify-center text-center py-6 animate-fade-in">
+              <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary-container flex items-center justify-center text-on-primary shadow-xl shadow-primary/20 rotate-3 mb-5">
+                <span class="material-symbols-outlined text-[32px]">smart_toy</span>
+              </div>
+              <h3 class<truncated 9248 bytes>NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.

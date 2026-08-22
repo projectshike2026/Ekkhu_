@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EKKU ACADEMIC OS - Modern Redesign</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#fff1f2',
+                            100: '#ffe4e6',
+                            500: '#f43f5e',
+                            600: '#e11d48',
+                            700: '#be123c',
+                        },
+                        surface: '#ffffff',
+                        background: '#f8fafc',
+                    },
+                    boxShadow: {
+                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+                        'float': '0 10px 40px -10px rgba(0, 0, 0, 0.08)',
+                        'inner-light': 'inset 0 2px 4px 0 rgba(255, 255, 255, 0.3)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom minimal scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #e2e8f0;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #cbd5e1;
+        }
+        
+        body {
+            background-color: #f8fafc;
+            /* Subtle background pattern/gradient */
+            background-image: radial-gradient(at 0% 0%, hsla(350, 100%, 96%, 1) 0px, transparent 50%),
+                              radial-gradient(at 100% 100%, hsla(210, 100%, 96%, 1) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body class="text-slate-800 h-screen w-screen overflow-hidden flex flex-col font-sans selection:bg-brand-100 selection:text-brand-700">
+
+    <div class="flex h-full w-full p-2 gap-2">
+        
+        <!-- ================= LEFT SIDEBAR ================= -->
+        <aside class="w-64 flex-shrink-0 flex flex-col justify-between glass-panel rounded-2xl shadow-soft z-20">
+            <div>
+                <!-- Brand/Logo -->
+                <div class="h-20 flex items-center px-6 gap-3 border-b border-slate-100/50">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white flex items-center justify-center font-bold text-xl shadow-lg shadow-brand-500/30">
+                        E
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-[15px] tracking-tight leading-tight text-slate-900">EKKU</h1>
+                        <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Academic OS</p>
+                    </div>
+                </div>
+
+                <!-- Navigation -->
+                <div class="p-4 overflow-y-auto h-[calc(100vh-140px)]">
+                    
+                    <div class="mb-6">
+                        <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">Main</p>
+                        <ul class="space-y-1">
+                            <li>
+                                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-white hover:shadow-sm transition-all duration-200 group">
+                                    <i class="ph ph-squares-four text-lg text-slate-400 group-hover:text-brand-500 transition-colors"></i>
+                                    <span class="font-medium text-sm">Dashboard</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="mb-6">
+                        <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">Study</p>
+                        <ul class="space-y-1">
+                            <li>
+                                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-white hover:shadow-sm transition-all duration-200 group">
+                                    <i class="ph ph-calendar-blank text-lg text-slate-400 group-hover:text-brand-500 transition-colors"></i>
+                                    <span class="font-medium text-sm">Routine</span>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-white hover:shadow-sm transition-all duration-200 group">
+                                    <i class="ph ph-user-check text-lg text-slate-400 group-hover:text-brand-500 transition-colors"></i>
+                                    <span class="font-medium text-sm">Attendance</span>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-white hover:shadow-sm transition-all duration-200 group">
+                                    <i class="ph ph-graduation-cap text-lg text-slate-400 group-hover:text-brand-500 transition-colors"></i>
+                                    <span class="font-medium text-sm">CGPA</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="mb-6">
+                        <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">Life</p>
+                        <ul class="space-y-1">
+                            <li>
+                                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-white hover:shadow-sm transition-all duration-200 group">
+                                    <i class="ph ph-wallet text-lg text-slate-400 group-hover:text-brand-500 transition-colors"></i>
+                                    <span class="font-medium text-sm">Budget</span>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-white hover:shadow-sm transition-all duration-200 group">
+                                    <i class="ph ph-check-circle text-lg text-slate-400 group-hover:text-brand-500 transition-colors"></i>
+                                    <span class="font-medium text-sm">Tasks</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="mb-6">
+                        <p class="text-[11px] font-semibold text-brand-500/80 uppercase tracking-wider mb-2 px-3">AI</p>
+                        <ul class="space-y-1">
+                            <li>
+                                <!-- Active Item -->
+                                <a href="#" class="flex items-center justify-between px-3 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-md shadow-brand-500/20 transition-all duration-200 group">
+                                    <div class="flex items-center gap-3">
+                                        <i class="ph-fill ph-robot text-lg text-white/90"></i>
+                                        <span class="font-medium text-sm shadow-sm">Ekku AI</span>
+                                    </div>
+                                    <div class="flex items-center gap-1.5 bg-black/10 px-2 py-0.5 rounded-full">
+                                        <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                                        <span class="text-[10px] font-medium text-white/90">Online</span>
+                                    </div>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">System</p>
+                        <ul class="space-y-1">
+                            <li>
+                                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-white hover:shadow-sm transition-all duration-200 group">
+                                    <i class="ph ph-gear text-lg text-slate-400 group-hover:text-brand-500 transition-colors"></i>
+                                    <span class="font-medium text-sm">Settings</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User Profile Bottom -->
+            <div class="p-4 border-t border-slate-100/50">
+                <button class="flex items-center justify-between w-full p-2 rounded-xl hover:bg-white hover:shadow-sm transition-all group text-left">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-full bg-slate-800 text-white flex items-center justify-center font-semibold text-sm">
+                            A
+                        </div>
+                        <div>
+                            <p class="font-semibold text-sm text-slate-800">Arnob</p>
+                            <p class="text-[11px] text-slate-500 group-hover:text-brand-500 transition-colors">Switch account</p>
+                        </div>
+                    </div>
+                    <i class="ph ph-sign-out text-slate-400 group-hover:text-brand-500"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ================= MAIN CONTENT AREA ================= -->
+        <main class="flex-1 flex flex-col min-w-0 relative">
+            
+            <!-- Top Header -->
+            <header class="h-20 flex items-center justify-between px-6 glass-panel rounded-2xl shadow-soft mb-2 z-10 mx-2 mt-2">
+                <div class="flex items-center gap-4">
+                    <h2 class="text-xl font-bold tracking-tight text-slate-800 hidden sm:block">EKKU</h2>
+                    <div class="h-5 w-[1px] bg-slate-200 hidden sm:block"></div>
+                    <!-- Search Bar -->
+                    <div class="relative group">
+                        <i class="ph ph-magnifying-glass absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 group-focus-within:text-brand-500 transition-colors"></i>
+                        <input type="text" placeholder="Search anything..." 
+                            class="pl-10 pr-4 py-2 w-64 bg-slate-100/50 hover:bg-white focus:bg-white border border-slate-200/60 focus:border-brand-500/30 rounded-full text-sm outline-none transition-all duration-300 focus:shadow-[0_0_0_4px_rgba(244,63,94,0.1)] placeholder-slate-400">
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-3">
+                    <button class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white/50 text-slate-600 hover:bg-white hover:shadow-sm text-xs font-medium transition-all">
+                        <i class="ph ph-command"></i>
+                        <span>Commands</span>
+                        <kbd class="ml-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-500">Ctrl+K</kbd>
+                    </button>
+                    <button class="w-9 h-9 rounded-full flex items-center justify-center text-slate-500 hover:bg-white hover:text-brand-500 hover:shadow-sm transition-all">
+                        <i class="ph ph-arrows-clockwise text-lg"></i>
+                    </button>
+                    <div class="w-9 h-9 rounded-full bg-brand-700 text-white flex items-center justify-center font-semibold text-sm cursor-pointer shadow-sm hover:shadow-md transition-shadow">
+                        A
+                    </div>
+                </div>
+            </header>
+
+            <!-- Chat Interface -->
+            <div class="flex-1 flex flex-col bg-white rounded-2xl shadow-soft overflow-hidden mx-2 relative border border-slate-100/50">
+                
+                <!-- Chat Header -->
+                <div class="h-16 border-b border-slate-100 flex items-center justify-between px-6 bg-white/80 backdrop-blur-md absolute top-0 w-full z-10">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-brand-500 text-white flex items-center justify-center shadow-sm relative">
+                            <i class="ph-fill ph-robot text-xl"></i>
+                            <div class="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 border-2 border-white rounded-full"></div>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-sm">Ekku — AI Friend</h3>
+                            <p class="text-xs text-slate-500 font-medium">Knows your data • 7-day memory • Bangla voice</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-1">
+                        <button class="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors" title="Clear Chat">
+                            <i class="ph ph-trash text-lg"></i>
+                        </button>
+                        <button class="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-brand-500 transition-colors" title="Voice Output On">
+                            <i class="ph ph-speaker-high text-lg"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Chat Messages Area -->
+                <div class="flex-1 overflow-y-auto p-6 pt-24 pb-32 space-y-6" id="chat-container">
+                    
+                    <!-- AI Message 1 -->
+                    <div class="flex gap-4 max-w-[85%]">
+                        <div class="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center flex-shrink-0 mt-1">
+                            <i class="ph-fill ph-robot text-sm"></i>
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center gap-2 ml-1">
+                                <span class="text-[11px] font-bold text-slate-500 tracking-wide">EKKU AI</span>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-400 uppercase">Neutral</span>
+                            </div>
+                            <div class="bg-white border border-slate-100 shadow-sm rounded-2xl rounded-tl-sm px-5 py-3.5 text-sm text-slate-700 leading-relaxed">
+                                আচ্ছা সরি বস! আর আজাইরা পোজ দিমু না। 😅
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Message 2 -->
+                    <div class="flex gap-4 max-w-[85%]">
+                        <div class="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center flex-shrink-0 mt-1">
+                            <i class="ph-fill ph-robot text-sm"></i>
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center gap-2 ml-1">
+                                <span class="text-[11px] font-bold text-slate-500 tracking-wide">EKKU AI</span>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-400 uppercase">Neutral</span>
+                            </div>
+                            <div class="bg-white border border-slate-100 shadow-sm rounded-2xl rounded-tl-sm px-5 py-3.5 text-sm text-slate-700 leading-relaxed">
+                                তাহলে সিরিয়াস মোডে বল, কি শুনতে চাস তুই?
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- User Message -->
+                    <div class="flex gap-4 max-w-[85%] ml-auto justify-end">
+                        <div class="flex flex-col gap-1 items-end">
+                            <div class="bg-gradient-to-br from-brand-500 to-brand-600 text-white shadow-md shadow-brand-500/20 rounded-2xl rounded-tr-sm px-5 py-3.5 text-sm leading-relaxed">
+                                hi
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Message 3 (Error state stylization) -->
+                    <div class="flex gap-4 max-w-[85%]">
+                        <div class="w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center flex-shrink-0 mt-1">
+                            <i class="ph-fill ph-warning-circle text-sm"></i>
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center gap-2 ml-1">
+                                <span class="text-[11px] font-bold text-slate-500 tracking-wide">EKKU AI</span>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-500 uppercase">System</span>
+                            </div>
+                            <div class="bg-white border border-red-100 shadow-sm rounded-2xl rounded-tl-sm px-5 py-3.5 text-sm text-slate-700 leading-relaxed">
+                                Network or server error. Try again in a moment.
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Floating Input Area -->
+                <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-6">
+                    <div class="bg-white rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-slate-200/60 p-2 pl-4 flex items-center gap-3 transition-all focus-within:shadow-[0_8px_30px_rgb(244,63,94,0.15)] focus-within:border-brand-300">
+                        <button class="text-slate-400 hover:text-brand-500 transition-colors p-1" title="Voice Input">
+                            <i class="ph ph-microphone text-xl"></i>
+                        </button>
+                        <input type="text" placeholder="How are you? Share your day, plans, or worries..." 
+                            class="flex-1 bg-transparent border-none outline-none text-sm text-slate-700 placeholder-slate-400 py-2">
+                        <button class="w-10 h-10 rounded-full bg-brand-600 text-white flex items-center justify-center hover:bg-brand-700 hover:shadow-md transition-all flex-shrink-0">
+                            <i class="ph-fill ph-paper-plane-right text-lg"></i>
+                        </button>
+                    </div>
+                    <div class="text-center mt-2">
+                        <p class="text-[10px] text-slate-400 font-medium">Enter to send • Shift+Enter for new line</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Status Bar -->
+            <div class="h-8 flex items-center justify-between px-4 text-[10px] text-slate-500 font-medium mt-auto mx-2">
+                <div class="flex items-center gap-4">
+                    <span class="flex items-center gap-1.5"><div class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div> DB: Local SQLite</span>
+                    <span class="flex items-center gap-1.5"><i class="ph ph-lock-key"></i> Encrypted</span>
+                    <span class="flex items-center gap-1.5"><i class="ph ph-user"></i> User: Arnob</span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span>v2.0.0</span>
+                    <span class="flex items-center gap-1 text-emerald-600"><i class="ph-fill ph-check-circle"></i> Healthy</span>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- ================= RIGHT SIDEBAR ================= -->
+        <aside class="w-72 flex-shrink-0 flex flex-col gap-4 z-20">
+            
+            <!-- Today Widget -->
+            <div class="glass-panel rounded-2xl shadow-soft p-5 border-t border-white/80">
+                <div class="flex items-center gap-2 mb-6">
+                    <i class="ph ph-calendar-blank text-slate-400"></i>
+                    <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider">Today</h3>
+                </div>
+                
+                <div class="flex flex-col items-center justify-center text-center py-6">
+                    <div class="w-14 h-14 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-3">
+                        <i class="ph ph-calendar-check text-2xl"></i>
+                    </div>
+                    <h4 class="font-bold text-slate-800 text-sm mb-1">No classes today</h4>
+                    <p class="text-xs text-slate-500">Good day to catch up on tasks.</p>
+                </div>
+            </div>
+
+            <!-- Quick Asks Widget -->
+            <div class="glass-panel rounded-2xl shadow-soft p-5 flex-1 border-t border-white/80 overflow-y-auto">
+                <div class="flex items-center gap-2 mb-4">
+                    <i class="ph ph-lightning text-slate-400"></i>
+                    <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider">Quick Asks</h3>
+                </div>
+                
+                <div class="space-y-3">
+                    
+                    <!-- Alert Item (Red) -->
+                    <button class="w-full flex items-center gap-3 p-3 bg-white hover:bg-slate-50 border border-slate-100 rounded-xl shadow-sm hover:shadow transition-all group text-left">
+                        <div class="w-9 h-9 rounded-lg bg-red-50 text-red-500 flex items-center justify-center flex-shrink-0 group-hover:bg-red-100 transition-colors">
+                            <i class="ph ph-warning text-lg"></i>
+                        </div>
+                        <span class="text-sm font-medium text-slate-700">Attendance below 75%</span>
+                    </button>
+
+                    <!-- Warning Item (Orange/Yellow instead of green for "in the red" context) -->
+                    <button class="w-full flex items-center gap-3 p-3 bg-white hover:bg-slate-50 border border-slate-100 rounded-xl shadow-sm hover:shadow transition-all group text-left">
+                        <div class="w-9 h-9 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center flex-shrink-0 group-hover:bg-orange-100 transition-colors">
+                            <i class="ph ph-chart-line-down text-lg"></i>
+                        </div>
+                        <span class="text-sm font-medium text-slate-700">Budget is in the red</span>
+                    </button>
+
+                    <!-- Neutral/Info Item -->
+                    <button class="w-full flex items-center gap-3 p-3 bg-white hover:bg-slate-50 border border-slate-100 rounded-xl shadow-sm hover:shadow transition-all group text-left">
+                        <div class="w-9 h-9 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition-colors">
+                            <i class="ph ph-calendar-x text-lg"></i>
+                        </div>
+                        <span class="text-sm font-medium text-slate-700">No classes today</span>
+                    </button>
+
+                    <!-- Positive/Success Item -->
+                    <button class="w-full flex items-center gap-3 p-3 bg-white hover:bg-slate-50 border border-slate-100 rounded-xl shadow-sm hover:shadow transition-all group text-left">
+                        <div class="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-100 transition-colors">
+                            <i class="ph ph-graduation-cap text-lg"></i>
+                        </div>
+                        <span class="text-sm font-medium text-slate-700">Study tips & tricks</span>
+                    </button>
+
+                </div>
+            </div>
+
+        </aside>
+
+    </div>
+
+    <script>
+        // Simple script to ensure chat stays scrolled to bottom
+        const chatContainer = document.getElementById('chat-container');
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Add simple input focus interaction
+        const inputField = document.querySelector('input[type="text"]');
+        inputField.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter' && this.value.trim() !== '') {
+                // Here you would normally append the message. For preview, just clear it.
+                setTimeout(() => {
+                    this.value = '';
+                }, 100);
+            }
+        });
+    </script>
+</body>
+</html>

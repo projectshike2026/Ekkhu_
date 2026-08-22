@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AODAS - AI Tutor</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-fixed": "#1a1c1c",
+                        "on-secondary-container": "#636262",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#6e7070",
+                        "surface-container-low": "#f5f3f3",
+                        "on-surface-variant": "#5b403d",
+                        "surface-container-lowest": "#ffffff",
+                        "outline": "#8f6f6c",
+                        "on-secondary-fixed": "#1c1b1b",
+                        "surface": "#fbf9f9",
+                        "surface-variant": "#e3e2e2",
+                        "secondary": "#5f5e5e",
+                        "on-primary-container": "#fff2f0",
+                        "on-primary": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "primary-fixed-dim": "#ffb3ac",
+                        "secondary-container": "#e2dfde",
+                        "surface-dim": "#dbdad9",
+                        "surface-container-highest": "#e3e2e2",
+                        "primary": "#af101a",
+                        "on-tertiary-fixed-variant": "#454747",
+                        "tertiary-fixed": "#e2e2e2",
+                        "on-surface": "#1b1c1c",
+                        "secondary-fixed-dim": "#c8c6c5",
+                        "inverse-surface": "#303031",
+                        "on-tertiary-container": "#f4f4f4",
+                        "error": "#ba1a1a",
+                        "outline-variant": "#e4beba",
+                        "on-background": "#1b1c1c",
+                        "primary-container": "#d32f2f",
+                        "surface-tint": "#ba1a20",
+                        "surface-container": "#efeded",
+                        "inverse-on-surface": "#f2f0f0",
+                        "on-secondary-fixed-variant": "#474746",
+                        "secondary-fixed": "#e5e2e1",
+                        "on-error": "#ffffff",
+                        "background": "#fbf9f9",
+                        "inverse-primary": "#ffb3ac",
+                        "primary-fixed": "#ffdad6",
+                        "on-primary-fixed": "#410003",
+                        "surface-container-high": "#e9e8e7",
+                        "surface-bright": "#fbf9f9",
+                        "on-error-container": "#93000a",
+                        "on-tertiary": "#ffffff",
+                        "tertiary": "#565858",
+                        "on-primary-fixed-variant": "#930010",
+                        "tertiary-fixed-dim": "#c6c6c7"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "section-gap": "80px",
+                        "gutter": "24px",
+                        "container-max": "1280px",
+                        "margin-desktop": "40px",
+                        "base": "8px",
+                        "margin-mobile": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Inter", "sans-serif"],
+                        "body-lg": ["Inter", "sans-serif"],
+                        "display-lg": ["Inter", "sans-serif"],
+                        "headline-lg": ["Inter", "sans-serif"],
+                        "label-md": ["Inter", "sans-serif"],
+                        "label-sm": ["Inter", "sans-serif"],
+                        "body-md": ["Inter", "sans-serif"],
+                        "headline-lg-mobile": ["Inter", "sans-serif"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-surface h-full flex flex-col text-on-surface">
+<!-- TopAppBar -->
+<header class="w-full top-0 sticky bg-surface dark:bg-surface border-b border-outline-variant flat no shadows z-40">
+<div class="flex justify-between items-center px-margin-mobile py-base h-[64px]">
+<button class="text-primary dark:text-primary hover:bg-surface-container-low transition-colors active:opacity-80 transition-opacity p-2 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-primary tracking-tight">AODAS</h1>
+<button class="text-primary dark:text-primary hover:bg-surface-container-low transition-colors active:opacity-80 transition-opacity p-2 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas (Chat) -->
+<main class="flex-1 overflow-y-auto px-margin-mobile pt-4 pb-32 relative">
+<!-- Document Selection Pill -->
+<div class="flex justify-center mb-6 sticky top-2 z-30">
+<button class="bg-surface-container-lowest border border-outline-variant rounded-full px-4 py-2 flex items-center gap-2 text-on-surface font-label-md text-label-md shadow-sm hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined text-[18px]">description</span>
+<span>Calculus_Ch4_Derivatives.pdf</span>
+<span class="material-symbols-outlined text-[18px]">arrow_drop_down</span>
+</button>
+</div>
+<!-- Chat Area -->
+<div class="flex flex-col gap-6">
+<!-- User Message -->
+<div class="flex justify-end">
+<div class="bg-primary-container text-on-primary rounded-2xl rounded-tr-sm px-4 py-3 max-w-[85%] font-body-md text-body-md shadow-sm">
+                    Can you explain the chain rule again? I'm having trouble applying it to $f(x) = \sin(x^2)$.
+                </div>
+</div>
+<!-- AI Tutor Message -->
+<div class="flex justify-start">
+<div class="bg-surface-container-lowest border border-outline-variant text-on-surface rounded-2xl rounded-tl-sm px-4 py-3 max-w-[90%] font-body-md text-body-md shadow-sm">
+<p class="mb-3">Of course. The chain rule is used when you have a composite function—a function inside another function.</p>
+<p class="mb-2">The rule is: $\frac{d}{dx}[f(g(x))] = f'(g(x)) \cdot g'(x)$</p>
+<p class="mb-3">For your function, $f(x) = \sin(x^2)$:</p>
+<ul class="list-disc pl-5 mb-3 text-secondary">
+<li>The "outer" function is $\sin(u)$. Its derivative is $\cos(u)$.</li>
+<li>The "inner" function is $u = x^2$. Its derivative is $2x$.</li>
+</ul>
+<p>So, putting it together:<br/>
+                    $f'(x) = \cos(x^2) \cdot 2x = \mathbf{2x \cos(x^2)}$</p>
+</div>
+</div>
+<!-- User Message -->
+<div class="flex justify-end">
+<div class="bg-primary-container text-on-primary rounded-2xl rounded-tr-sm px-4 py-3 max-w-[85%] font-body-md text-body-md shadow-sm">
+                    Ah, I see. What about $e^{3x}$?
+                </div>
+</div>
+<!-- AI Tutor Message Loading state -->
+<div class="flex justify-start">
+<div class="bg-surface-container-lowest border border-outline-variant text-secondary rounded-2xl rounded-tl-sm px-4 py-3 max-w-[90%] font-body-md text-body-md shadow-sm flex items-center gap-2">
+<span class="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                    Thinking...
+                </div>
+</div>
+</div>
+</main>
+<!-- Bottom Input Area -->
+<div class="fixed bottom-16 left-0 right-0 bg-surface-container-lowest border-t border-outline-variant px-margin-mobile py-3 z-40">
+<div class="flex flex-col gap-2">
+<!-- Enhanced Toggle -->
+<div class="flex items-center justify-between px-2">
+<span class="font-label-sm text-label-sm text-secondary">Enhanced AI Analysis</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox" value=""/>
+<div class="w-9 h-5 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-outline-variant after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<!-- Input Field -->
+<div class="flex items-center gap-2">
+<button class="text-secondary hover:text-primary transition-colors p-2">
+<span class="material-symbols-outlined">add_circle</span>
+</button>
+<div class="flex-1 relative">
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-4 pr-10 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-body-md text-body-md text-on-surface" placeholder="Ask about your document..." type="text"/>
+</div>
+<button class="bg-primary text-on-primary rounded-full w-10 h-10 flex items-center justify-center hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined" data-weight="fill" style="font-variation-settings: 'FILL' 1;">send</span>
+</button>
+</div>
+</div>
+</div>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface dark:bg-surface border-t border-outline-variant flat no shadows flex justify-around items-center h-16 px-margin-mobile pb-safe">
+<!-- Dashboard -->
+<button class="flex flex-col items-center justify-center text-secondary hover:text-primary-container transition-colors scale-95 active:scale-90 transition-transform w-16">
+<span class="material-symbols-outlined text-[24px]" data-icon="dashboard">dashboard</span>
+<span class="font-label-sm text-label-sm mt-1">Dashboard</span>
+</button>
+<!-- AI Tutor (Active) -->
+<button class="flex flex-col items-center justify-center text-primary font-bold hover:text-primary-container transition-colors scale-95 active:scale-90 transition-transform w-16">
+<span class="material-symbols-outlined text-[24px]" data-icon="smart_toy" data-weight="fill" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+<span class="font-label-sm text-label-sm mt-1">AI Tutor</span>
+</button>
+<!-- Routine -->
+<button class="flex flex-col items-center justify-center text-secondary hover:text-primary-container transition-colors scale-95 active:scale-90 transition-transform w-16">
+<span class="material-symbols-outlined text-[24px]" data-icon="event_note">event_note</span>
+<span class="font-label-sm text-label-sm mt-1">Routine</span>
+</button>
+<!-- Research -->
+<button class="flex flex-col items-center justify-center text-secondary hover:text-primary-container transition-colors scale-95 active:scale-90 transition-transform w-16">
+<span class="material-symbols-outlined text-[24px]" data-icon="view_kanban">view_kanban</span>
+<span class="font-label-sm text-label-sm mt-1">Research</span>
+</button>
+</nav>
+<!-- Support for safe area on mobile devices -->
+<style>
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+    </style>
+</body></html>

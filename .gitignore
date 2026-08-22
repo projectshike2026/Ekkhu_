@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+*.db
+ekku.key
+venv/
+.venv/
+node_modules/
+dist/
+users.json
+*.wav
+*.mp3
+voice_demo.*
+
