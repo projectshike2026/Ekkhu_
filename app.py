@@ -49,7 +49,13 @@ try:
         return _orig_ws_connect(self, url, **kwargs)
     _aiohttp.ClientSession.ws_connect = _proxied_ws_connect
     _USING_PA_PROXY = True
-    print(f"[PROXY] PythonAnywhere detected → patched aiohttp.ws_connect to use {_PA_PROXY_URL}")
+    
+    # Also set global environment variables so `requests` (used by gTTS) respects the proxy
+    import os as _os
+    _os.environ["http_proxy"] = _PA_PROXY_URL
+    _os.environ["https_proxy"] = _PA_PROXY_URL
+    
+    print(f"[PROXY] PythonAnywhere detected → patched aiohttp.ws_connect and set os.environ proxies to {_PA_PROXY_URL}")
 except Exception:
     pass  # Not on PythonAnywhere, or aiohttp not installed yet — no patch needed
 
@@ -853,10 +859,6 @@ def tts():
 # ------------------------------------------------------------------
 @app.route('/tts-debug', methods=['GET'])
 def tts_debug():
-    """
-    Diagnostic endpoint to figure out why TTS is failing on PythonAnywhere.
-    Visit: /tts-debug  in your browser to see a full report.
-    """
     import sys
     import socket
     import asyncio
@@ -870,19 +872,15 @@ def tts_debug():
         "edge_tts_version": None,
         "network_check": {},
         "asyncio_test": None,
-        "tts_synthesis_test": None,
-        "tts_synthesis_error": None,
         "overall": "UNKNOWN"
     }
 
-    # 1. Check edge_tts version
     try:
         import edge_tts
         report["edge_tts_version"] = getattr(edge_tts, '__version__', 'unknown')
     except ImportError as e:
         report["edge_tts_version"] = f"NOT INSTALLED: {e}"
 
-    # 2. Network connectivity checks
     targets = [
         ("speech.platform.bing.com", 443),
         ("tts.speech.microsoft.com", 443),
@@ -895,51 +893,63 @@ def tts_debug():
         except Exception as e:
             report["network_check"][f"{host}:{port}"] = f"❌ BLOCKED: {e}"
 
-    # 3. Asyncio sanity check
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        async def _ping():
-            return "ok"
+        async def _ping(): return "ok"
         result = loop.run_until_complete(_ping())
         loop.close()
         report["asyncio_test"] = f"✅ new_event_loop works: {result}"
     except Exception as e:
         report["asyncio_test"] = f"❌ asyncio broken: {e}"
 
-    # 4. Full TTS synthesis test (same code path as /tts)
     synthesis_result = {"audio_bytes": None, "error": None}
     def _run_tts():
-        async def _gen():
-            import edge_tts as _et
-            c = _et.Communicate("হ্যালো একু", "bn-BD-NabanitaNeural", rate="-10%", pitch="+0Hz")
-            data = b""
-            async for chunk in c.stream():
-                if chunk["type"] == "audio":
-                    data += chunk["data"]
-            return data
         try:
+            import edge_tts as _et
             lp = asyncio.new_event_loop()
             asyncio.set_event_loop(lp)
+            async def _gen():
+                c = _et.Communicate("টেস্ট", "bn-BD-NabanitaNeural")
+                b = b""
+                async for chunk in c.stream():
+                    if chunk["type"] == "audio":
+                        b += chunk["data"]
+                return b
             synthesis_result["audio_bytes"] = len(lp.run_until_complete(_gen()))
             lp.close()
         except Exception as e:
             synthesis_result["error"] = traceback.format_exc()
 
-    t = threading.Thread(target=_run_tts)
-    t.start()
-    t.join(timeout=30)
-
-    if synthesis_result["error"]:
-        report["tts_synthesis_test"] = "❌ FAILED"
-        report["tts_synthesis_error"] = synthesis_result["error"]
-        report["overall"] = "BROKEN — see tts_synthesis_error"
-    elif synthesis_result["audio_bytes"]:
-        report["tts_synthesis_test"] = f"✅ SUCCESS — got {synthesis_result['audio_bytes']} bytes of audio"
-        report["overall"] = "✅ TTS IS WORKING"
+    if not _USING_PA_PROXY:
+        t = threading.Thread(target=_run_tts)
+        t.start()
+        t.join(timeout=10)
+        if t.is_alive():
+            report["tts_synthesis_error"] = "TIMEOUT (blocked)"
+        elif synthesis_result["error"]:
+            report["tts_synthesis_error"] = synthesis_result["error"]
+        else:
+            report["tts_synthesis_test"] = f"✅ SUCCESS — got {synthesis_result['audio_bytes']} bytes of audio from edge-tts"
     else:
-        report["tts_synthesis_test"] = "❌ Got 0 bytes (empty audio)"
-        report["overall"] = "BROKEN — empty audio"
+        report["tts_synthesis_error"] = "edge-tts skipped (blocked on PythonAnywhere)"
+
+    gtts_result = {"audio_bytes": None, "error": None}
+    try:
+        from gtts import gTTS
+        import io
+        tts_obj = gTTS(text="টেস্ট", lang='bn', slow=False)
+        buf = io.BytesIO()
+        tts_obj.write_to_fp(buf)
+        gtts_result["audio_bytes"] = len(buf.getvalue())
+        report["gtts_synthesis_test"] = f"✅ SUCCESS — got {gtts_result['audio_bytes']} bytes of audio from gTTS"
+    except Exception as e:
+        report["gtts_synthesis_error"] = traceback.format_exc()
+
+    if report.get("tts_synthesis_test") or report.get("gtts_synthesis_test"):
+        report["overall"] = "✅ TTS IS WORKING (via " + ("edge-tts" if report.get("tts_synthesis_test") else "gTTS fallback") + ")"
+    else:
+        report["overall"] = "BROKEN — Both TTS engines failed"
 
     return jsonify(report), 200
 
