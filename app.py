@@ -486,7 +486,7 @@ def call_gemini(messages, api_key):
             content = json.dumps(mock_json)
             
         gm.append({'role': role, 'parts': [content]})
-    for model_name in ['gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash', 'gemini-3.6-flash']:
+    for model_name in ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.5-flash']:
         try:
             model = genai.GenerativeModel(model_name, system_instruction=system_part)
             resp = model.generate_content(
@@ -508,8 +508,8 @@ def call_llm(messages):
         providers.append(('gemini-1', lambda: call_gemini(messages, GEMINI_API_KEY_1)))
     if GEMINI_API_KEY_2:
         providers.append(('gemini-2', lambda: call_gemini(messages, GEMINI_API_KEY_2)))
-    # if GROQ_API_KEY:
-    #     providers.append(('groq', lambda: call_groq(messages)))
+    if GROQ_API_KEY:
+        providers.append(('groq', lambda: call_groq(messages)))
     errors = []
     for name, fn in providers:
         try:
