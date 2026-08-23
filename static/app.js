@@ -93,8 +93,8 @@ async function api(url, method = 'GET', body = null) {
 // ════════════════════════════════════════════════════════════════
 async function initUserSelect() {
     // Check session storage first
-    const saved = sessionStorage.getItem('ekku_user_id');
-    const savedData = sessionStorage.getItem('ekku_user_data');
+    const saved = localStorage.getItem('ekku_user_id');
+    const savedData = localStorage.getItem('ekku_user_data');
     if (saved && savedData) {
         currentUserId = saved;
         currentUserData = JSON.parse(savedData);
@@ -323,8 +323,8 @@ document.addEventListener('keydown', (e) => {
 function loginSuccess(uid, name, color) {
     currentUserId = uid;
     currentUserData = { id: uid, name, color };
-    sessionStorage.setItem('ekku_user_id', uid);
-    sessionStorage.setItem('ekku_user_data', JSON.stringify(currentUserData));
+    localStorage.setItem('ekku_user_id', uid);
+    localStorage.setItem('ekku_user_data', JSON.stringify(currentUserData));
     showApp();
 }
 
@@ -340,8 +340,8 @@ function showApp() {
 function switchUser() {
     currentUserId = null;
     currentUserData = null;
-    sessionStorage.removeItem('ekku_user_id');
-    sessionStorage.removeItem('ekku_user_data');
+    localStorage.removeItem('ekku_user_id');
+    localStorage.removeItem('ekku_user_data');
     pinBuffer = '';
     pendingUser = null;
     // Clear chat messages so next user doesn't see previous user's chat
@@ -1463,28 +1463,54 @@ function toggleMic() {
     }
     const rec = new SR();
     rec.lang = 'bn-BD';
-    rec.interimResults = false;
+    rec.interimResults = true; // KEY FIX for mobile stability
     rec.continuous = false;
     rec.maxAlternatives = 1;
+    
     rec.onstart = () => {
         ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic_off'; });
     };
-    rec.onspeechend = () => { try { rec.stop(); } catch(e) {} };
-    rec.onresult = (event) => {
-        const transcript = Array.from(event.results).map(r => r[0].transcript).join(' ').trim();
-        const input = getChatInput();
-        if (input) { input.value = transcript; input.dispatchEvent(new Event('input')); }
-        if (isDesktopDevice()) autoGrowDeskInput();
+    
+    rec.onspeechend = () => { 
+        try { rec.stop(); } catch(e) {} 
     };
+    
+    rec.onresult = (event) => {
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                finalTranscript += event.results[i][0].transcript;
+            }
+        }
+        
+        if (!finalTranscript) return;
+        
+        const transcript = finalTranscript.trim();
+        const input = getChatInput();
+        if (input) { 
+            input.value = transcript; 
+            input.dispatchEvent(new Event('input')); 
+        }
+        if (isDesktopDevice()) autoGrowDeskInput();
+        
+        if (recognition === rec) {
+            try { rec.abort(); } catch(e) {}
+            recognition = null;
+            ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic'; });
+        }
+    };
+    
     rec.onerror = (e) => {
         console.warn('Mic error:', e.error);
         ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic'; });
         recognition = null;
     };
+    
     rec.onend = () => {
         ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic'; });
         recognition = null;
     };
+    
     recognition = rec;
     try { rec.start(); } catch(e) { recognition = null; }
 }
@@ -1539,24 +1565,23 @@ function startVoiceInteraction() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { toast('Voice input not supported in this browser', 'error'); return; }
 
-    // HTTPS check — microphone requires secure context on mobile
-    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    // HTTPS check — microphone requires secure context (handles https://, localhost, 127.0.0.1, and Render)
+    if (!window.isSecureContext) {
         toast('Microphone requires HTTPS', 'error'); return;
     }
 
-    // Toggle: if already listening, cancel
+    // Toggle: if already listening, STOP and submit (manual push-to-stop)
     if (voiceModeRecognition) {
         _clearVoiceSafetyTimer();
-        _abortVoice();
-        _voiceGotResult = false;
-        setVoiceUIState('idle');
+        try { voiceModeRecognition.stop(); } catch(e) {}
+        // DO NOT set state to idle here. Let onresult or onend handle it.
         return;
     }
 
     _voiceGotResult = false;
     const rec = new SR();
     rec.lang = 'bn-BD';
-    rec.interimResults = false;
+    rec.interimResults = true; // KEY FIX: Mobile browsers need this to stay alive
     rec.continuous = false;
     rec.maxAlternatives = 1;
 
@@ -1566,29 +1591,46 @@ function startVoiceInteraction() {
         // Safety net: mobile Chrome sometimes never fires onend
         _voiceSafetyTimer = setTimeout(() => {
             if (voiceModeRecognition === rec) {
-                console.warn('[Voice] Safety timeout — aborting stuck recognition');
-                try { rec.abort(); } catch(e) {}
+                console.warn('[Voice] Safety timeout — forcing stop to capture results');
+                try { rec.stop(); } catch(e) {}
+                
+                // Fallback abort if stop() hangs
+                setTimeout(() => {
+                    if (voiceModeRecognition === rec) {
+                         try { rec.abort(); } catch(e) {}
+                         voiceModeRecognition = null;
+                         setVoiceUIState('idle');
+                    }
+                }, 2000);
             }
         }, 9000);
     };
 
-    // KEY FIX: onspeechend fires the moment the user stops speaking.
-    // Calling stop() here forces Chrome mobile to finalize and fire onresult.
     rec.onspeechend = () => {
         try { rec.stop(); } catch(e) {}
     };
 
     rec.onresult = (event) => {
-        if (_voiceGotResult) return; // guard against double-fire
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                finalTranscript += event.results[i][0].transcript;
+            }
+        }
+        
+        if (!finalTranscript) return; // ignore interim text for now
+        
+        if (_voiceGotResult) return; 
         _voiceGotResult = true;
         _clearVoiceSafetyTimer();
-        const transcript = Array.from(event.results)
-            .map(r => r[0].transcript).join(' ').trim();
-        // Abort immediately so mic indicator goes off
+        
+        const transcript = finalTranscript.trim();
+        
         if (voiceModeRecognition === rec) {
             try { rec.abort(); } catch(e) {}
             voiceModeRecognition = null;
         }
+        
         if (transcript) {
             sendVoiceChat(transcript);
         } else {
@@ -1610,10 +1652,9 @@ function startVoiceInteraction() {
         _clearVoiceSafetyTimer();
         if (voiceModeRecognition === rec) voiceModeRecognition = null;
         if (!_voiceGotResult) {
-            // No result came through — go back to idle
             setVoiceUIState('idle');
         }
-        _voiceGotResult = false; // always reset for next session
+        _voiceGotResult = false; 
     };
 
     voiceModeRecognition = rec;
