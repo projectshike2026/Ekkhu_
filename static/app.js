@@ -2199,3 +2199,21 @@ if (cmdInput) {
 document.addEventListener('DOMContentLoaded', () => {
     initUserSelect();
 });
+
+// ── Mobile Mic Permission Primer ──
+// Primes the mic permission on the very first user interaction (click/tap) on the page.
+// This caches the browser permission early, enabling SpeechRecognition to start synchronously.
+function primeMicPermission() {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                stream.getTracks().forEach(t => t.stop());
+                console.log('[Mic Primer] Permission successfully primed.');
+            })
+            .catch(e => console.warn('[Mic Primer] Permission failed/denied:', e));
+    }
+    document.removeEventListener('click', primeMicPermission);
+    document.removeEventListener('touchstart', primeMicPermission);
+}
+document.addEventListener('click', primeMicPermission, { once: true });
+document.addEventListener('touchstart', primeMicPermission, { once: true });
