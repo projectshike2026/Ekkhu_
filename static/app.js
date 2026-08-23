@@ -1553,8 +1553,77 @@ async function startRecording(mode) {
         
     } catch (err) {
         console.warn("getUserMedia error:", err);
-        toast(`Mic Error: ${err.name} - ${err.message}`, 'error');
+        if (err.name === 'NotAllowedError' || err.message.includes('permission') || err.message.includes('overlay')) {
+            toast('Mic blocked. Opening native recorder...', 'warning');
+            startNativeRecordingFallback(mode);
+        } else {
+            toast(`Mic Error: ${err.name} - ${err.message}`, 'error');
+        }
     }
+}
+
+// ── Native Voice Recorder Fallback for Mobile ──
+function startNativeRecordingFallback(mode) {
+    let input = document.getElementById('native-voice-fallback');
+    if (!input) {
+        input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'audio/*';
+        input.capture = 'microphone';
+        input.id = 'native-voice-fallback';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        
+        input.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const isVoice = (input.dataset.mode === 'voice');
+            
+            if (isVoice) setVoiceUIState('thinking');
+            else {
+                ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'mic'; el.classList.remove('text-red-500'); } });
+                if (isDesktopDevice()) showDesktopTyping();
+            }
+            
+            const formData = new FormData();
+            formData.append('audio', file, file.name || 'voice.m4a');
+            
+            try {
+                const response = await fetch('/voice', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                if (!response.ok || data.error) throw new Error(data.error || 'API Error');
+                
+                if (data.text) {
+                    if (isVoice) {
+                        sendVoiceChat(data.text);
+                    } else {
+                        if (isDesktopDevice()) hideDesktopTyping();
+                        const chatInput = getChatInput();
+                        if (chatInput) { 
+                            chatInput.value = data.text; 
+                            chatInput.dispatchEvent(new Event('input')); 
+                        }
+                        if (isDesktopDevice()) autoGrowDeskInput();
+                    }
+                } else {
+                    if (isVoice) setVoiceUIState('idle');
+                }
+            } catch (err) {
+                console.warn('Voice API error:', err);
+                toast('Could not understand audio.', 'error');
+                if (isVoice) setVoiceUIState('idle');
+                if (!isVoice && isDesktopDevice()) hideDesktopTyping();
+            }
+            
+            // Reset input value so it triggers change again if same file is picked
+            input.value = '';
+        });
+    }
+    
+    input.dataset.mode = mode;
+    input.click();
 }
 
 function toggleMic() {
