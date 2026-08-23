@@ -1454,9 +1454,21 @@ async function speakText(text, emotion = "neutral") {
 
 // ── Mic (text-mode inline mic button) ────────────────────────────
 let recognition = null;
-function toggleMic() {
+async function toggleMic() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { toast('Voice input not supported in this browser', 'error'); return; }
+    
+    // Explicitly request mic permission first to unlock Android Chrome bug
+    try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(t => t.stop());
+        }
+    } catch (e) {
+        toast('Microphone permission required! Check browser settings.', 'error');
+        return;
+    }
+
     if (recognition) {
         try { recognition.abort(); } catch(e) {}
         recognition = null;
@@ -1563,13 +1575,24 @@ function _abortVoice() {
     }
 }
 
-function startVoiceInteraction() {
+async function startVoiceInteraction() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { toast('Voice input not supported in this browser', 'error'); return; }
 
     // HTTPS check — microphone requires secure context (handles https://, localhost, 127.0.0.1, and Render)
     if (!window.isSecureContext) {
         toast('Microphone requires HTTPS', 'error'); return;
+    }
+
+    // Explicitly request mic permission first to unlock Android Chrome bug
+    try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(t => t.stop());
+        }
+    } catch (e) {
+        toast('Microphone permission required! Check browser settings.', 'error');
+        return;
     }
 
     // Toggle: if already listening, STOP and force reset
