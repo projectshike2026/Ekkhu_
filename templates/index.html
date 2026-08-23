@@ -650,39 +650,43 @@
         </div>
 
         <!-- TEXT MODE VIEW (Mobile) -->
-        <div id="mob-text-view" class="flex-1 flex flex-col min-h-0">
-          <div class="flex-1 overflow-y-auto p-4 space-y-3" id="chat-messages" style="min-height:0"></div>
-          <div class="shrink-0 bg-surface-container-lowest/80 backdrop-blur-md border-t border-outline-variant/30 px-3 py-3">
-            <div class="flex items-center gap-2 bg-surface-container-lowest border border-outline-variant/50 rounded-full px-3 py-1.5 shadow-sm focus-within:border-primary/40 focus-within:shadow-[0_4px_20px_rgb(225,29,72,0.08)] transition-all">
-              <button id="mic-btn" onclick="toggleMic()" class="text-on-surface-variant hover:text-primary hover:bg-primary/5 p-1.5 rounded-full transition-colors">
-                <span class="material-symbols-outlined text-[20px]" id="mic-icon">mic</span>
+        <div id="mob-text-view" class="flex-1 flex flex-col min-h-0 bg-surface-container-lowest">
+          <div class="flex-1 overflow-y-auto p-3 space-y-4 pb-2" id="chat-messages" style="min-height:0"></div>
+          <div class="shrink-0 px-3 pb-3 pt-1 bg-gradient-to-t from-surface-container-lowest via-surface-container-lowest to-transparent">
+            <div class="flex items-center gap-2 bg-surface-container-low border border-outline-variant/30 rounded-full pl-2 pr-1.5 py-1.5 shadow-sm focus-within:bg-white focus-within:shadow-md focus-within:border-primary/30 transition-all">
+              <button id="mic-btn" onclick="toggleMic()" class="text-on-surface-variant hover:text-primary hover:bg-primary/10 p-2 rounded-full transition-colors flex items-center justify-center">
+                <span class="material-symbols-outlined text-[22px]" id="mic-icon">mic</span>
               </button>
-              <input id="chat-input" class="flex-1 bg-transparent border-none focus:outline-none text-[15px] text-on-surface placeholder-on-surface-variant/70 py-1.5" placeholder="Type a message..." type="text"/>
-              <button onclick="sendChat()" class="bg-gradient-to-br from-primary to-primary-container text-white rounded-full w-9 h-9 flex items-center justify-center shadow-sm hover:shadow-md hover:shadow-primary/20 transition-all">
-                <span class="material-symbols-outlined text-[17px] translate-x-0.5" style="font-variation-settings:'FILL' 1">send</span>
+              <input id="chat-input" class="flex-1 bg-transparent border-none focus:outline-none text-[15px] text-on-surface placeholder-on-surface-variant py-2" placeholder="Message Ekku..." type="text"/>
+              <button onclick="sendChat()" class="bg-primary text-on-primary rounded-full w-10 h-10 flex items-center justify-center shadow-sm shadow-primary/30 hover:scale-105 active:scale-95 transition-all">
+                <span class="material-symbols-outlined text-[18px] translate-x-0.5" style="font-variation-settings:'FILL' 1">send</span>
               </button>
             </div>
           </div>
         </div>
 
         <!-- VOICE MODE VIEW (Mobile) -->
-        <div id="mob-voice-view" class="hidden flex-1 flex flex-col items-center justify-center bg-gradient-to-b from-transparent to-primary/5 animate-fade-in relative min-h-0">
+        <div id="mob-voice-view" class="hidden flex-1 flex flex-col items-center justify-center bg-surface-container-lowest animate-fade-in relative min-h-0 overflow-hidden">
+          <!-- Background glow -->
+          <div class="absolute inset-0 bg-gradient-to-b from-primary/5 to-primary/10 opacity-50"></div>
+          
           <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-300" id="mob-voice-waves">
-            <div class="flex gap-2 items-center h-24">
-              <div class="w-3 bg-primary rounded-full animate-[voiceWave_1s_ease-in-out_infinite]" style="animation-delay:0.0s"></div>
-              <div class="w-3 bg-primary rounded-full animate-[voiceWave_1s_ease-in-out_infinite]" style="animation-delay:0.2s"></div>
-              <div class="w-3 bg-primary rounded-full animate-[voiceWave_1s_ease-in-out_infinite]" style="animation-delay:0.4s"></div>
-              <div class="w-3 bg-primary rounded-full animate-[voiceWave_1s_ease-in-out_infinite]" style="animation-delay:0.6s"></div>
-              <div class="w-3 bg-primary rounded-full animate-[voiceWave_1s_ease-in-out_infinite]" style="animation-delay:0.8s"></div>
+            <div class="relative w-64 h-64 flex items-center justify-center">
+              <div class="absolute inset-0 rounded-full border border-primary/40 animate-[ping_1.5s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
+              <div class="absolute inset-6 rounded-full border border-primary/30 animate-[ping_1.5s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 0.3s"></div>
+              <div class="absolute inset-12 rounded-full border border-primary/20 animate-[ping_1.5s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 0.6s"></div>
             </div>
           </div>
           
-          <button id="mob-voice-btn" onclick="startVoiceInteraction()" class="relative z-10 w-24 h-24 rounded-full bg-gradient-to-br from-primary to-primary-container text-white flex items-center justify-center shadow-lg transition-transform active:scale-95 mb-8">
-            <span class="material-symbols-outlined text-[40px]">mic</span>
-          </button>
-          
-          <h3 id="mob-voice-status" class="text-xl font-bold text-on-surface relative z-10">Tap to speak</h3>
-          <p id="mob-voice-subtitle" class="text-sm text-on-surface-variant mt-2 max-w-[250px] text-center relative z-10">Voice interactions are saved to your memory automatically.</p>
+          <div class="relative z-10 flex flex-col items-center justify-center w-full max-w-sm px-6">
+              <!-- Status text moved ABOVE the button for better visibility -->
+              <h3 id="mob-voice-status" class="text-3xl font-bold text-on-surface mb-2 tracking-tight">Tap to speak</h3>
+              <p id="mob-voice-subtitle" class="text-sm text-on-surface-variant text-center mb-12">Voice mode active. Natural conversations.</p>
+              
+              <button id="mob-voice-btn" onclick="startVoiceInteraction()" class="relative w-32 h-32 rounded-full bg-gradient-to-br from-primary to-primary-container text-white flex items-center justify-center shadow-[0_8px_32px_rgba(225,29,72,0.3)] hover:shadow-[0_12px_40px_rgba(225,29,72,0.4)] transition-all duration-300 active:scale-95 ring-4 ring-primary/20 ring-offset-4 ring-offset-surface-container-lowest">
+                <span class="material-symbols-outlined text-[56px] drop-shadow-md">mic</span>
+              </button>
+          </div>
         </div>
 
       </div>

@@ -1225,8 +1225,10 @@ async function renderStaggeredReply(messages, emotion, isDesktop, ttsText = null
         }
     }
 
-    // Speak the full reply text joined, or use the optimized tts_text if provided
-    speakText(ttsText || msgs.join(' '), emotion);
+    // Speak only if we are in Voice Mode
+    if (chatMode === 'voice') {
+        speakText(ttsText || msgs.join(' '), emotion);
+    }
 
     // Refresh sidebar panel on desktop after all bubbles are done
     if (isDesktop) refreshDesktopPanel();
@@ -1524,22 +1526,22 @@ function setVoiceUIState(state) {
     if (!btn) return;
 
     if (state === 'idle') {
-        btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[40px]'}">mic</span>`;
+        btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[56px] drop-shadow-md'}">mic</span>`;
         btn.classList.remove('animate-pulse');
         status.textContent = "Tap to speak";
         if (waves) waves.style.opacity = '0';
     } else if (state === 'listening') {
-        btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[40px]'}">mic</span>`;
+        btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[56px] drop-shadow-md'}">mic</span>`;
         btn.classList.add('animate-pulse');
         status.textContent = "Listening...";
-        if (waves) waves.style.opacity = '0';
+        if (waves) waves.style.opacity = '1'; // Show glow
     } else if (state === 'thinking') {
         btn.innerHTML = `<div class="typing-dots"><span class="bg-white"></span><span class="bg-white"></span><span class="bg-white"></span></div>`;
         btn.classList.remove('animate-pulse');
         status.textContent = "Thinking...";
-        if (waves) waves.style.opacity = '0';
+        if (waves) waves.style.opacity = '1';
     } else if (state === 'speaking') {
-        btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[40px]'}">smart_toy</span>`;
+        btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[56px] drop-shadow-md'}">smart_toy</span>`;
         btn.classList.remove('animate-pulse');
         status.textContent = "Ekku is speaking";
         // Waves opacity is handled in currentAudio.onplay
