@@ -1570,11 +1570,18 @@ function startVoiceInteraction() {
         toast('Microphone requires HTTPS', 'error'); return;
     }
 
-    // Toggle: if already listening, STOP and submit (manual push-to-stop)
+    // Toggle: if already listening, STOP and force reset
     if (voiceModeRecognition) {
         _clearVoiceSafetyTimer();
         try { voiceModeRecognition.stop(); } catch(e) {}
-        // DO NOT set state to idle here. Let onresult or onend handle it.
+        
+        // Force reset UI immediately so it doesn't get stuck if the browser glitches
+        if (voiceModeRecognition === rec) {
+            try { rec.abort(); } catch(e) {}
+            voiceModeRecognition = null;
+        }
+        _voiceGotResult = false;
+        setVoiceUIState('idle');
         return;
     }
 
@@ -1644,6 +1651,11 @@ function startVoiceInteraction() {
         _clearVoiceSafetyTimer();
         if (voiceModeRecognition === rec) voiceModeRecognition = null;
         console.warn('[Voice] Recognition error:', e.error);
+        
+        if (e.error === 'not-allowed') toast('Microphone permission denied! Check browser settings.', 'error');
+        else if (e.error === 'network') toast('Network error! Check connection.', 'error');
+        else if (e.error !== 'no-speech' && e.error !== 'aborted') toast('Mic error: ' + e.error, 'error');
+        
         _voiceGotResult = false;
         setVoiceUIState('idle');
     };
