@@ -910,7 +910,11 @@ def voice_input():
                     'https://api.groq.com/openai/v1/audio/transcriptions',
                     headers={'Authorization': f'Bearer {GROQ_API_KEY}'},
                     files={'file': (f'audio{ext}', f, mime)},
-                    data={'model': 'whisper-large-v3', 'language': 'bn'},
+                    data={
+                        'model': 'whisper-large-v3', 
+                        'language': 'bn',
+                        'prompt': 'বাংলা ও English এর মিশ্রণ। উদাহরণ: সম্ভবত, হইছে, করছি, করা, bug fix, implement, ভাই, আচ্ছা।'
+                    },
                     timeout=15
                 )
             
