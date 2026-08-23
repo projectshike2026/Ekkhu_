@@ -3,19 +3,19 @@
 // ╚══════════════════════════════════════════════════════════════╝
 
 // ─── Globals ────────────────────────────────────────────────────
-let currentUserId   = null;   // Active user id (A-E)
+let currentUserId = null;   // Active user id (A-E)
 let currentUserData = null;   // { id, name, color }
-let voiceEnabled    = true;
-let MODAL_ACTION    = null;
-let selectedColor   = '#af101a';
-let currentAudio    = null;
-let chatMode        = 'text'; // 'text' | 'voice'
+let voiceEnabled = true;
+let MODAL_ACTION = null;
+let selectedColor = '#af101a';
+let currentAudio = null;
+let chatMode = 'text'; // 'text' | 'voice'
 
 // PIN state
-let pinBuffer     = '';
-let pinMode       = 'login';  // 'login' | 'setup'
-let pendingUser   = null;     // user data object before login completes
-let setupBuffer   = '';
+let pinBuffer = '';
+let pinMode = 'login';  // 'login' | 'setup'
+let pendingUser = null;     // user data object before login completes
+let setupBuffer = '';
 
 // ─── Utility ────────────────────────────────────────────────────
 function escapeHtml(str) {
@@ -28,33 +28,33 @@ function escapeHtml(str) {
 function switchChatMode(mode) {
     chatMode = mode;
     const isVoice = mode === 'voice';
-    
+
     // Desktop UI
     const dTextBtn = document.getElementById('desk-mode-text');
     const dVoiceBtn = document.getElementById('desk-mode-voice');
     const dTextVw = document.getElementById('desk-text-view');
     const dVoiceVw = document.getElementById('desk-voice-view');
-    
+
     if (dTextBtn) {
         dTextBtn.className = isVoice ? 'px-4 py-1.5 text-xs font-semibold rounded-md text-on-surface-variant hover:text-on-surface transition-all' : 'px-4 py-1.5 text-xs font-semibold rounded-md bg-white shadow-sm text-on-surface transition-all';
         dVoiceBtn.className = isVoice ? 'px-4 py-1.5 text-xs font-semibold rounded-md bg-white shadow-sm text-on-surface transition-all' : 'px-4 py-1.5 text-xs font-semibold rounded-md text-on-surface-variant hover:text-on-surface transition-all';
         dTextVw.classList.toggle('hidden', isVoice);
         dVoiceVw.classList.toggle('hidden', !isVoice);
     }
-    
+
     // Mobile UI
     const mTextBtn = document.getElementById('mob-mode-text');
     const mVoiceBtn = document.getElementById('mob-mode-voice');
     const mTextVw = document.getElementById('mob-text-view');
     const mVoiceVw = document.getElementById('mob-voice-view');
-    
+
     if (mTextBtn) {
         mTextBtn.className = isVoice ? 'px-3 py-1 text-xs font-semibold rounded-md text-on-surface-variant transition-all' : 'px-3 py-1 text-xs font-semibold rounded-md bg-white shadow-sm text-on-surface transition-all';
         mVoiceBtn.className = isVoice ? 'px-3 py-1 text-xs font-semibold rounded-md bg-white shadow-sm text-on-surface transition-all' : 'px-3 py-1 text-xs font-semibold rounded-md text-on-surface-variant transition-all';
         mTextVw.classList.toggle('hidden', isVoice);
         mVoiceVw.classList.toggle('hidden', !isVoice);
     }
-    
+
     // Refresh history when switching back to text
     if (!isVoice) {
         if (isDesktopDevice()) {
@@ -96,7 +96,7 @@ async function initUserSelect() {
     const saved = sessionStorage.getItem('ekku_user_id');
     const savedData = sessionStorage.getItem('ekku_user_data');
     if (saved && savedData) {
-        currentUserId   = saved;
+        currentUserId = saved;
         currentUserData = JSON.parse(savedData);
         showApp();
         return;
@@ -116,7 +116,7 @@ function switchAuthTab(tab) {
     }
     document.getElementById('login-panel').classList.toggle('hidden', !isLog);
     document.getElementById('create-panel').classList.toggle('hidden', isLog);
-    
+
     if (isLog) loadLoginUsers();
     else {
         // Reset create form
@@ -139,7 +139,7 @@ async function loadLoginUsers() {
         } else {
             emptyMsg.classList.add('hidden');
             list.innerHTML = users.map(u => `
-                <div class="user-login-item flex items-center gap-3 p-3 rounded-xl mb-2" onclick="selectUser(${JSON.stringify(u).replace(/"/g,'&quot;')})">
+                <div class="user-login-item flex items-center gap-3 p-3 rounded-xl mb-2" onclick="selectUser(${JSON.stringify(u).replace(/"/g, '&quot;')})">
                     <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shadow-md" style="background:${u.color}">${escapeHtml(u.name[0])}</div>
                     <div class="flex-1 text-left">
                         <p class="font-medium text-white text-sm leading-tight">${escapeHtml(u.name)}</p>
@@ -172,20 +172,20 @@ function caDel() {
 async function submitCreateAccount() {
     const name = document.getElementById('ca-name').value.trim();
     const code = document.getElementById('ca-code').value.trim();
-    const err  = document.getElementById('ca-error');
-    
+    const err = document.getElementById('ca-error');
+
     if (!name) { err.textContent = 'Please enter a name.'; err.classList.remove('hidden'); return; }
     if (pinBuffer.length !== 4) { err.textContent = 'Please enter a 4-digit PIN.'; err.classList.remove('hidden'); return; }
     if (!code) { err.textContent = 'Invite code is required.'; err.classList.remove('hidden'); return; }
-    
+
     err.classList.add('hidden');
-    
+
     try {
         const res = await fetch('/api/create_account', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, pin: pinBuffer, invite_code: code })
         }).then(r => r.json());
-        
+
         if (res.ok) {
             loginSuccess(res.id, res.name, res.color);
         } else {
@@ -215,13 +215,13 @@ function showPinScreen(user) {
     const scr = document.getElementById('pin-screen');
     scr.classList.remove('hidden');
     pinBuffer = '';
-    
+
     const av = document.getElementById('pin-avatar');
     av.textContent = user.name[0];
     av.style.background = user.color;
     document.getElementById('pin-user-name').textContent = user.name;
     document.getElementById('pin-error').classList.add('hidden');
-    
+
     updatePinDots('pd', pinBuffer);
 }
 
@@ -263,7 +263,7 @@ function pinError() {
     const dotsRow = document.getElementById('pin-dots-row');
     dotsRow.classList.add('pin-shake');
     setTimeout(() => dotsRow.classList.remove('pin-shake'), 450);
-    
+
     for (let i = 0; i < 4; i++) {
         const d = document.getElementById('pd' + i);
         if (d) { d.classList.add('error'); setTimeout(() => d.classList.remove('error'), 700); }
@@ -292,7 +292,7 @@ function updatePinDots(prefix, buf) {
 document.addEventListener('keydown', (e) => {
     const authScr = document.getElementById('auth-screen');
     const pinScr = document.getElementById('pin-screen');
-    
+
     // Auth screen open?
     if (authScr.style.display === 'flex' || authScr.style.display === '') {
         const createTab = !document.getElementById('create-panel').classList.contains('hidden');
@@ -300,20 +300,20 @@ document.addEventListener('keydown', (e) => {
             // Check if typing in text inputs
             const act = document.activeElement;
             if (act.tagName === 'INPUT' && (act.id === 'ca-name' || act.id === 'ca-code')) return;
-            
+
             if (e.key >= '0' && e.key <= '9') caKey(e.key);
             else if (e.key === 'Backspace') caDel();
         }
         return;
     }
-    
+
     // PIN screen open?
     if (!pinScr.classList.contains('hidden')) {
         if (e.key >= '0' && e.key <= '9') pinKey(e.key);
         else if (e.key === 'Backspace') pinBackspace();
         return;
     }
-    
+
     // Global app shortcuts
     if (!currentUserId) return;
     handleGlobalKeydown(e);
@@ -454,13 +454,13 @@ function showView(name) {
 function toast(msg, type = 'info') {
     const container = document.getElementById('toast-container');
     if (!container) return;
-    const colorMap = { success:'bg-emerald-success', error:'bg-error', info:'bg-secondary', warning:'bg-warning-amber' };
-    const iconMap  = { success:'check_circle', error:'error', info:'info', warning:'warning' };
+    const colorMap = { success: 'bg-emerald-success', error: 'bg-error', info: 'bg-secondary', warning: 'bg-warning-amber' };
+    const iconMap = { success: 'check_circle', error: 'error', info: 'info', warning: 'warning' };
     const t = document.createElement('div');
     t.className = `flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-white text-body-sm font-label-md toast-in ${colorMap[type] || colorMap.info}`;
     t.innerHTML = `<span class="material-symbols-outlined text-[18px]">${iconMap[type] || 'info'}</span><span>${escapeHtml(msg)}</span>`;
     container.appendChild(t);
-    setTimeout(() => { t.classList.replace('toast-in','toast-out'); setTimeout(() => t.remove(), 350); }, 3000);
+    setTimeout(() => { t.classList.replace('toast-in', 'toast-out'); setTimeout(() => t.remove(), 350); }, 3000);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -470,7 +470,7 @@ async function loadSummary() {
     try {
         const data = await api('/api/summary');
         const today = data.today || '?';
-        const dateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+        const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
         // Mobile
         const mobDate = document.getElementById('dash-date');
         if (mobDate) mobDate.textContent = dateStr;
@@ -481,7 +481,7 @@ async function loadSummary() {
         // Attendance
         const attPct = data.att_percent || 0;
         const attStatus = attPct >= 75 ? 'GOOD' : attPct >= 60 ? 'AT RISK' : 'DANGER';
-        const attColor  = attPct >= 75 ? 'bg-emerald-success/15 text-emerald-success' : attPct >= 60 ? 'bg-warning-amber/15 text-warning-amber' : 'bg-error-container text-on-error-container';
+        const attColor = attPct >= 75 ? 'bg-emerald-success/15 text-emerald-success' : attPct >= 60 ? 'bg-warning-amber/15 text-warning-amber' : 'bg-error-container text-on-error-container';
         ['dash-att', 'd-att-pct-dt', 'd-att-pct-ring-dt'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.textContent = attPct + '%';
@@ -565,7 +565,7 @@ function updateRing(id, pct, circumference, color) {
 
 function renderDashRoutine(classes, today, data) {
     const mobEl = document.getElementById('dash-routine');
-    const dtEl  = document.getElementById('dash-routine-dt');
+    const dtEl = document.getElementById('dash-routine-dt');
 
     if (!classes || classes.length === 0) {
         const emptyHtml = `<div class="flex flex-col items-center text-center py-6">
@@ -574,7 +574,7 @@ function renderDashRoutine(classes, today, data) {
             <p class="text-[11px] text-on-surface-variant mt-1">Good day to catch up on tasks.</p>
         </div>`;
         if (mobEl) mobEl.innerHTML = emptyHtml;
-        if (dtEl)  dtEl.innerHTML  = emptyHtml;
+        if (dtEl) dtEl.innerHTML = emptyHtml;
         return;
     }
 
@@ -611,7 +611,7 @@ function renderDashRoutine(classes, today, data) {
     }).join('');
 
     if (mobEl) mobEl.innerHTML = html;
-    if (dtEl)  dtEl.innerHTML  = html;
+    if (dtEl) dtEl.innerHTML = html;
 }
 
 async function renderDashTasks() {
@@ -619,7 +619,7 @@ async function renderDashTasks() {
         const tasks = await api('/api/tasks');
         const pending = tasks.filter(t => !t.done).slice(0, 5);
         const mobEl = document.getElementById('dash-tasks');
-        const dtEl  = document.getElementById('dash-tasks-dt');
+        const dtEl = document.getElementById('dash-tasks-dt');
         const html = pending.length === 0
             ? '<div class="text-[12px] text-on-surface-variant text-center py-4">All caught up! 🎉</div>'
             : pending.map(t => `
@@ -634,8 +634,8 @@ async function renderDashTasks() {
                     <span class="text-[10px] px-2 py-0.5 rounded-full ${t.priority === 'high' ? 'bg-error-container text-on-error-container' : t.priority === 'low' ? 'bg-emerald-success/20 text-emerald-success' : 'bg-warning-amber/20 text-warning-amber'}">${t.priority}</span>
                 </div>`).join('');
         if (mobEl) mobEl.innerHTML = html;
-        if (dtEl)  dtEl.innerHTML  = html;
-    } catch (e) {}
+        if (dtEl) dtEl.innerHTML = html;
+    } catch (e) { }
 }
 
 function renderSmartInsights(data) {
@@ -663,15 +663,15 @@ function renderSmartInsights(data) {
 // ════════════════════════════════════════════════════════════════
 //  ROUTINE
 // ════════════════════════════════════════════════════════════════
-const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_COLORS = {
-    '#af101a':'bg-red-100 text-red-800 border-red-200',
-    '#6366f1':'bg-indigo-100 text-indigo-800 border-indigo-200',
-    '#10B981':'bg-emerald-100 text-emerald-800 border-emerald-200',
-    '#F59E0B':'bg-amber-100 text-amber-800 border-amber-200',
-    '#0ea5e9':'bg-sky-100 text-sky-800 border-sky-200',
-    '#8b5cf6':'bg-violet-100 text-violet-800 border-violet-200',
-    '#ef4444':'bg-red-100 text-red-800 border-red-200',
+    '#af101a': 'bg-red-100 text-red-800 border-red-200',
+    '#6366f1': 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    '#10B981': 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    '#F59E0B': 'bg-amber-100 text-amber-800 border-amber-200',
+    '#0ea5e9': 'bg-sky-100 text-sky-800 border-sky-200',
+    '#8b5cf6': 'bg-violet-100 text-violet-800 border-violet-200',
+    '#ef4444': 'bg-red-100 text-red-800 border-red-200',
 };
 
 async function loadRoutine() {
@@ -693,16 +693,16 @@ async function loadRoutine() {
             </div>
             <div class="flex-1 space-y-1">
                 ${classes.length === 0 ? '<p class="text-[11px] text-on-surface-variant/50 text-center py-3">No class</p>' :
-                    classes.map(c => {
-                        const colorClass = DAY_COLORS[c.color] || 'bg-primary-fixed text-on-primary-fixed-variant border-primary-fixed-dim';
-                        return `<div class="flex flex-col border rounded-lg p-2 ${colorClass} group">
+                classes.map(c => {
+                    const colorClass = DAY_COLORS[c.color] || 'bg-primary-fixed text-on-primary-fixed-variant border-primary-fixed-dim';
+                    return `<div class="flex flex-col border rounded-lg p-2 ${colorClass} group">
                             <div class="flex justify-between items-start">
                                 <span class="text-[11px] font-semibold leading-tight flex-1 pr-1 truncate">${escapeHtml(c.course)}</span>
                                 <button onclick="deleteRoutine(${c.id})" class="opacity-0 group-hover:opacity-100 text-[10px] transition-opacity shrink-0">✕</button>
                             </div>
                             <span class="text-[10px] opacity-70 mt-0.5">${escapeHtml(c.time)}${c.room ? ' · ' + escapeHtml(c.room) : ''}</span>
                         </div>`;
-                    }).join('')}
+                }).join('')}
             </div>
         </div>`;
     }).join('');
@@ -730,9 +730,9 @@ function openRoutineModal() {
         <div>
             <label class="text-label-sm text-on-surface-variant">Color</label>
             <div class="flex gap-2 mt-2">
-                ${['#af101a','#6366f1','#10B981','#F59E0B','#0ea5e9','#8b5cf6'].map(c =>
-                    `<button onclick="selectedColor='${c}'; document.querySelectorAll('.color-pick').forEach(b=>b.classList.remove('ring-2','ring-offset-1')); this.classList.add('ring-2','ring-offset-1');" class="color-pick w-7 h-7 rounded-full transition-all" style="background:${c}"></button>`
-                ).join('')}
+                ${['#af101a', '#6366f1', '#10B981', '#F59E0B', '#0ea5e9', '#8b5cf6'].map(c =>
+        `<button onclick="selectedColor='${c}'; document.querySelectorAll('.color-pick').forEach(b=>b.classList.remove('ring-2','ring-offset-1')); this.classList.add('ring-2','ring-offset-1');" class="color-pick w-7 h-7 rounded-full transition-all" style="background:${c}"></button>`
+    ).join('')}
             </div>
         </div>`;
     document.getElementById('modal-overlay').classList.remove('hidden');
@@ -743,7 +743,7 @@ function openRoutineModal() {
 // ════════════════════════════════════════════════════════════════
 async function loadAttendance() {
     const data = await api('/api/attendance');
-    const list  = document.getElementById('att-list');
+    const list = document.getElementById('att-list');
     const overall = document.getElementById('att-overall');
     const overallBar = document.getElementById('att-overall-bar');
 
@@ -766,7 +766,7 @@ async function loadAttendance() {
             const safe = Math.round((a.total * 0.75) - a.present);
             const canMiss = Math.max(0, Math.round(a.present / 0.75 - a.total));
             const statusColor = pct >= 75 ? 'text-emerald-success' : pct >= 60 ? 'text-warning-amber' : 'text-error';
-            const barColor    = pct >= 75 ? 'bg-emerald-success' : pct >= 60 ? 'bg-warning-amber' : 'bg-error';
+            const barColor = pct >= 75 ? 'bg-emerald-success' : pct >= 60 ? 'bg-warning-amber' : 'bg-error';
             return `<div class="bg-surface-container-lowest border border-surface-variant rounded-xl p-card-padding shadow-sm">
                 <div class="flex items-start justify-between mb-3">
                     <div>
@@ -779,7 +779,7 @@ async function loadAttendance() {
                     </div>
                 </div>
                 <div class="w-full bg-surface-container rounded-full h-2 overflow-hidden mb-3">
-                    <div class="${barColor} h-2 rounded-full transition-all duration-700" style="width:${Math.min(pct,100)}%"></div>
+                    <div class="${barColor} h-2 rounded-full transition-all duration-700" style="width:${Math.min(pct, 100)}%"></div>
                 </div>
                 <div class="flex items-center justify-between">
                     <p class="text-[12px] text-on-surface-variant">
@@ -828,12 +828,12 @@ function openAttModal() {
 // ════════════════════════════════════════════════════════════════
 async function loadBudget() {
     const data = await api('/api/budget');
-    const balEl  = document.getElementById('bud-balance');
-    const inEl   = document.getElementById('bud-in');
-    const outEl  = document.getElementById('bud-out');
-    const list   = document.getElementById('bud-list');
+    const balEl = document.getElementById('bud-balance');
+    const inEl = document.getElementById('bud-in');
+    const outEl = document.getElementById('bud-out');
+    const list = document.getElementById('bud-list');
     if (balEl) balEl.textContent = '৳' + (data.balance || 0).toFixed(2);
-    if (inEl)  inEl.textContent  = '৳' + (data.total_in || 0).toFixed(2);
+    if (inEl) inEl.textContent = '৳' + (data.total_in || 0).toFixed(2);
     if (outEl) outEl.textContent = '৳' + (data.total_out || 0).toFixed(2);
     if (!list) return;
     if (!data.items || data.items.length === 0) {
@@ -888,9 +888,9 @@ function openBudgetModal() {
 // ════════════════════════════════════════════════════════════════
 async function loadCGPA() {
     const data = await api('/api/cgpa');
-    const cgpaEl   = document.getElementById('cgpa-value');
+    const cgpaEl = document.getElementById('cgpa-value');
     const creditEl = document.getElementById('cgpa-credit');
-    if (cgpaEl)   cgpaEl.textContent   = (data.cgpa || 0).toFixed(2);
+    if (cgpaEl) cgpaEl.textContent = (data.cgpa || 0).toFixed(2);
     if (creditEl) creditEl.textContent = (data.total_credit || 0).toFixed(1);
     const list = document.getElementById('grade-list');
     if (!list) return;
@@ -943,11 +943,11 @@ function openGradeModal() {
 
 async function predictCGPA() {
     const target = parseFloat(document.getElementById('pred-target').value) || 0;
-    const done   = parseFloat(document.getElementById('pred-done').value) || 0;
-    const rem    = parseFloat(document.getElementById('pred-rem').value) || 0;
-    const data   = await api('/api/cgpa');
+    const done = parseFloat(document.getElementById('pred-done').value) || 0;
+    const rem = parseFloat(document.getElementById('pred-rem').value) || 0;
+    const data = await api('/api/cgpa');
     const current = data.cgpa;
-    const result  = await api('/api/cgpa/predict', 'POST', {
+    const result = await api('/api/cgpa/predict', 'POST', {
         current_cgpa: current, credits_done: done, target_cgpa: target, remaining_credits: rem
     });
     document.getElementById('pred-result').innerHTML = `
@@ -976,7 +976,7 @@ async function loadPlans() {
         if (!grouped[p.day]) grouped[p.day] = [];
         grouped[p.day].push(p);
     });
-    
+
     let html = '';
     days.forEach(day => {
         if (grouped[day].length > 0) {
@@ -1112,7 +1112,7 @@ function openTaskModal() {
 function toggleVoice() {
     voiceEnabled = !voiceEnabled;
     const v = voiceEnabled ? 'volume_up' : 'volume_off';
-    ['voice-icon','desk-voice-icon'].forEach(id => {
+    ['voice-icon', 'desk-voice-icon'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = v;
     });
@@ -1264,7 +1264,7 @@ async function sendChat() {
             body: JSON.stringify({ message: msg })
         });
         const data = await res.json();
-        
+
         if (data.debug_error) {
             alert("Backend Error: " + data.debug_error);
         }
@@ -1378,27 +1378,27 @@ function browserTTSFallback(text) {
     }
     // Cancel any ongoing speech
     window.speechSynthesis.cancel();
-    
+
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'bn-BD'; // Bengali
     utter.rate = 1.0;
-    
+
     utter.onstart = () => {
         if (chatMode === 'voice') {
             const waves = isDesktopDevice() ? document.getElementById('desk-voice-waves') : document.getElementById('mob-voice-waves');
             if (waves) waves.style.opacity = '1';
         }
     };
-    
+
     utter.onend = () => {
         if (chatMode === 'voice') setVoiceUIState('idle');
     };
-    
+
     utter.onerror = (e) => {
         console.error("Browser TTS error:", e);
         if (chatMode === 'voice') setVoiceUIState('idle');
     };
-    
+
     window.speechSynthesis.speak(utter);
 }
 
@@ -1406,7 +1406,7 @@ async function speakText(text, emotion = "neutral") {
     if (!voiceEnabled) return;
     if (currentAudio) { currentAudio.pause(); currentAudio = null; }
     window.speechSynthesis.cancel(); // Stop any browser TTS playing
-    
+
     try {
         const res = await fetch('/tts', {
             method: 'POST',
@@ -1416,7 +1416,7 @@ async function speakText(text, emotion = "neutral") {
         const data = await res.json();
         if (data.audio) {
             currentAudio = new Audio('data:audio/mp3;base64,' + data.audio);
-            
+
             // Animation handling for Voice Mode
             currentAudio.onplay = () => {
                 if (chatMode === 'voice') {
@@ -1429,7 +1429,7 @@ async function speakText(text, emotion = "neutral") {
                     setVoiceUIState('idle');
                 }
             };
-            
+
             // Mobile Chrome requires handling potential autoplay rejection
             const playPromise = currentAudio.play();
             if (playPromise !== undefined) {
@@ -1444,7 +1444,7 @@ async function speakText(text, emotion = "neutral") {
             console.warn("Server TTS failed (rate limit/blocked), falling back to browser TTS", data.error || '');
             browserTTSFallback(text);
         }
-    } catch (e) { 
+    } catch (e) {
         console.warn("Server TTS network error, falling back to browser TTS", e);
         browserTTSFallback(text);
     }
@@ -1494,9 +1494,9 @@ function setVoiceUIState(state) {
     const btn = isDesktop ? document.getElementById('desk-voice-btn') : document.getElementById('mob-voice-btn');
     const status = isDesktop ? document.getElementById('desk-voice-status') : document.getElementById('mob-voice-status');
     const waves = isDesktop ? document.getElementById('desk-voice-waves') : document.getElementById('mob-voice-waves');
-    
+
     if (!btn) return;
-    
+
     if (state === 'idle') {
         btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[40px]'}">mic</span>`;
         btn.classList.remove('animate-pulse');
@@ -1520,7 +1520,6 @@ function setVoiceUIState(state) {
     }
 }
 
-// ── Voice Mode (full-screen voice interaction) ────────────────────
 let voiceModeRecognition = null;
 let _voiceGotResult = false;
 let _voiceSafetyTimer = null;
@@ -1637,16 +1636,16 @@ async function sendVoiceChat(msg) {
             body: JSON.stringify({ message: msg })
         });
         const data = await res.json();
-        
+
         // Ensure UI switches to speaking
         setVoiceUIState('speaking');
-        
+
         // Speak the reply, preferring the optimized tts_text
         const msgs = Array.isArray(data.reply) ? data.reply : [data.reply];
         const fullText = msgs.filter(m => m && String(m).trim()).join(' ');
-        
+
         speakText(data.tts_text || fullText, data.emotion);
-        
+
         // Note: the backend automatically saves the conversation. 
         // When we switch back to Text mode, a reload/fetch will show it.
     } catch (e) {
@@ -1661,7 +1660,7 @@ function copyCode(btn) {
     navigator.clipboard.writeText(code).then(() => {
         btn.innerHTML = `<span class="material-symbols-outlined text-[13px]">check</span> Copied`;
         setTimeout(() => { btn.innerHTML = `<span class="material-symbols-outlined text-[13px]">content_copy</span> Copy`; }, 1500);
-    }).catch(() => {});
+    }).catch(() => { });
 }
 
 function renderMarkdown(src) {
@@ -1740,7 +1739,7 @@ async function loadDesktopChatPanel() {
     try {
         const history = await api('/api/chat/history');
         renderPanelRecent(history);
-    } catch (e) {}
+    } catch (e) { }
 }
 
 function refreshDesktopPanel() { loadDesktopChatPanel(); }
@@ -1792,15 +1791,15 @@ function renderPanelSuggestions(data) {
     const cont = document.getElementById('desk-panel-suggestions');
     if (!cont) return;
     const items = [];
-    if ((data.att_percent || 0) < 75) items.push({ icon:'warning', label:'Attendance below 75%', ask:'My attendance is low. How do I improve it?' });
-    if (data.pending_tasks > 0) items.push({ icon:'task_alt', label: data.pending_tasks + ' task(s) pending', ask:'Help me plan my pending tasks for today.' });
-    if ((data.balance || 0) < 0) items.push({ icon:'savings', label:'Budget is in the red', ask:'My budget is negative. Help me plan my spending.' });
-    if ((data.today_routine || []).length === 0) items.push({ icon:'today', label:'No classes today', ask:'I have a free day. Suggest a balanced plan to study and rest.' });
-    items.push({ icon:'school', label:'Study tips & tricks', ask:'Give me the best study techniques that actually work for university students.' });
-    items.push({ icon:'psychology', label:'Manage exam stress', ask:'I feel stressed about exams. How can I manage it?' });
-    items.push({ icon:'favorite', label:'A little motivation', ask:'I need some motivation to get things done. Give me a boost.' });
+    if ((data.att_percent || 0) < 75) items.push({ icon: 'warning', label: 'Attendance below 75%', ask: 'My attendance is low. How do I improve it?' });
+    if (data.pending_tasks > 0) items.push({ icon: 'task_alt', label: data.pending_tasks + ' task(s) pending', ask: 'Help me plan my pending tasks for today.' });
+    if ((data.balance || 0) < 0) items.push({ icon: 'savings', label: 'Budget is in the red', ask: 'My budget is negative. Help me plan my spending.' });
+    if ((data.today_routine || []).length === 0) items.push({ icon: 'today', label: 'No classes today', ask: 'I have a free day. Suggest a balanced plan to study and rest.' });
+    items.push({ icon: 'school', label: 'Study tips & tricks', ask: 'Give me the best study techniques that actually work for university students.' });
+    items.push({ icon: 'psychology', label: 'Manage exam stress', ask: 'I feel stressed about exams. How can I manage it?' });
+    items.push({ icon: 'favorite', label: 'A little motivation', ask: 'I need some motivation to get things done. Give me a boost.' });
     cont.innerHTML = items.slice(0, 4).map((it, i) => `
-        <button onclick="quickAsk('${it.ask.replace(/'/g,"\\'")}')\" class="w-full flex items-center gap-3 p-2.5 rounded-xl border border-outline-variant/60 bg-white text-left hover:border-primary hover:-translate-y-0.5 transition-all duration-200">
+        <button onclick="quickAsk('${it.ask.replace(/'/g, "\\'")}')\" class="w-full flex items-center gap-3 p-2.5 rounded-xl border border-outline-variant/60 bg-white text-left hover:border-primary hover:-translate-y-0.5 transition-all duration-200">
             <span class="w-8 h-8 rounded-lg ${i % 2 === 0 ? 'bg-primary-fixed text-on-primary-fixed-variant' : 'bg-emerald-success/15 text-emerald-success'} flex items-center justify-center shrink-0">
                 <span class="material-symbols-outlined text-[16px]">${it.icon}</span>
             </span>
@@ -1819,10 +1818,10 @@ async function renderPanelRecent(history) {
     }
     const recent = history.filter(h => h.role === 'user').slice(-6).reverse();
     cont.innerHTML = recent.map(h => {
-        const ask = String(h.content || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').slice(0,120);
+        const ask = String(h.content || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').slice(0, 120);
         return `<button onclick="quickAsk('${ask}')" class="w-full text-left p-2.5 rounded-xl hover:bg-surface-container-low transition-colors flex items-center gap-2">
             <span class="material-symbols-outlined text-[14px] text-on-surface-variant shrink-0">history</span>
-            <span class="text-[12px] text-on-surface truncate">${escapeHtml(h.content).slice(0,70)}</span>
+            <span class="text-[12px] text-on-surface truncate">${escapeHtml(h.content).slice(0, 70)}</span>
         </button>`;
     }).join('');
 }
@@ -1865,7 +1864,7 @@ async function loadSettingsUserList() {
                 </div>
                 <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold ${u.id === currentUserId ? 'bg-primary text-on-primary' : 'bg-surface-variant text-on-surface-variant'}">User ${u.id}</span>
             </div>`).join('');
-    } catch (e) {}
+    } catch (e) { }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1950,34 +1949,40 @@ async function modalSave() {
 let cmdIndex = 0;
 
 const COMMANDS = [
-    { group: 'Navigate', items: [
-        { icon:'dashboard', label:'Dashboard', hint:'Go to dashboard', run:()=>showView('dashboard') },
-        { icon:'calendar_month', label:'Routine', hint:'Go to routine', run:()=>showView('routine') },
-        { icon:'how_to_reg', label:'Attendance', hint:'Go to attendance', run:()=>showView('attendance') },
-        { icon:'payments', label:'Budget', hint:'Go to budget', run:()=>showView('budget') },
-        { icon:'school', label:'CGPA', hint:'Go to CGPA predictor', run:()=>showView('cgpa') },
-        { icon:'task_alt', label:'Tasks', hint:'Go to tasks', run:()=>showView('tasks') },
-        { icon:'smart_toy', label:'AI Friend (Ekku)', hint:'Chat with your friend', run:()=>showView('chat') },
-        { icon:'settings', label:'Settings', hint:'Go to settings', run:()=>showView('settings') },
-    ]},
-    { group: 'Quick actions', items: [
-        { icon:'add_task', label:'Add a task', hint:'Create a new task', run:()=>openTaskModal() },
-        { icon:'event_note', label:'Add a class', hint:'Add to routine', run:()=>openRoutineModal() },
-        { icon:'account_balance_wallet', label:'Add budget entry', hint:'Log income or expense', run:()=>openBudgetModal() },
-        { icon:'school', label:'Add course grade', hint:'Track a grade for CGPA', run:()=>openGradeModal() },
-        { icon:'how_to_reg', label:'Add attendance course', hint:'Start tracking a course', run:()=>openAttModal() },
-        { icon:'delete_sweep', label:'New AI conversation', hint:'Clear current chat', run:()=>clearDesktopChat() },
-        { icon:'sync', label:'Refresh dashboard', hint:'Reload all data', run:()=>loadSummary() },
-        { icon:'volume_up', label:'Toggle voice replies', hint:'On / Off', run:()=>toggleVoice() },
-        { icon:'swap_horiz', label:'Switch user', hint:'Log out and select another user', run:()=>switchUser() },
-    ]},
-    { group: 'Ask Ekku', items: [
-        { icon:'today', label:'Daily check-in', hint:'How is your day going?', run:()=>quickAsk('How is my day going? Give me a quick, honest check-in.') },
-        { icon:'event_available', label:'Plan my day', hint:'Sort routine & tasks', run:()=>quickAsk('Help me plan my day based on my routine and tasks.') },
-        { icon:'favorite', label:'Cheer me up', hint:'Support for rough days', run:()=>quickAsk('I am feeling a bit down today. Cheer me up and give me some support.') },
-        { icon:'flag', label:'Keep me on track', hint:'Attendance, tasks, budget', run:()=>quickAsk('Help me stay on track with attendance, tasks and budget. What should I focus on?') },
-        { icon:'bolt', label:'Motivate me', hint:'Get things done', run:()=>quickAsk('I need some motivation to get things done. Give me a boost.') },
-    ]},
+    {
+        group: 'Navigate', items: [
+            { icon: 'dashboard', label: 'Dashboard', hint: 'Go to dashboard', run: () => showView('dashboard') },
+            { icon: 'calendar_month', label: 'Routine', hint: 'Go to routine', run: () => showView('routine') },
+            { icon: 'how_to_reg', label: 'Attendance', hint: 'Go to attendance', run: () => showView('attendance') },
+            { icon: 'payments', label: 'Budget', hint: 'Go to budget', run: () => showView('budget') },
+            { icon: 'school', label: 'CGPA', hint: 'Go to CGPA predictor', run: () => showView('cgpa') },
+            { icon: 'task_alt', label: 'Tasks', hint: 'Go to tasks', run: () => showView('tasks') },
+            { icon: 'smart_toy', label: 'AI Friend (Ekku)', hint: 'Chat with your friend', run: () => showView('chat') },
+            { icon: 'settings', label: 'Settings', hint: 'Go to settings', run: () => showView('settings') },
+        ]
+    },
+    {
+        group: 'Quick actions', items: [
+            { icon: 'add_task', label: 'Add a task', hint: 'Create a new task', run: () => openTaskModal() },
+            { icon: 'event_note', label: 'Add a class', hint: 'Add to routine', run: () => openRoutineModal() },
+            { icon: 'account_balance_wallet', label: 'Add budget entry', hint: 'Log income or expense', run: () => openBudgetModal() },
+            { icon: 'school', label: 'Add course grade', hint: 'Track a grade for CGPA', run: () => openGradeModal() },
+            { icon: 'how_to_reg', label: 'Add attendance course', hint: 'Start tracking a course', run: () => openAttModal() },
+            { icon: 'delete_sweep', label: 'New AI conversation', hint: 'Clear current chat', run: () => clearDesktopChat() },
+            { icon: 'sync', label: 'Refresh dashboard', hint: 'Reload all data', run: () => loadSummary() },
+            { icon: 'volume_up', label: 'Toggle voice replies', hint: 'On / Off', run: () => toggleVoice() },
+            { icon: 'swap_horiz', label: 'Switch user', hint: 'Log out and select another user', run: () => switchUser() },
+        ]
+    },
+    {
+        group: 'Ask Ekku', items: [
+            { icon: 'today', label: 'Daily check-in', hint: 'How is your day going?', run: () => quickAsk('How is my day going? Give me a quick, honest check-in.') },
+            { icon: 'event_available', label: 'Plan my day', hint: 'Sort routine & tasks', run: () => quickAsk('Help me plan my day based on my routine and tasks.') },
+            { icon: 'favorite', label: 'Cheer me up', hint: 'Support for rough days', run: () => quickAsk('I am feeling a bit down today. Cheer me up and give me some support.') },
+            { icon: 'flag', label: 'Keep me on track', hint: 'Attendance, tasks, budget', run: () => quickAsk('Help me stay on track with attendance, tasks and budget. What should I focus on?') },
+            { icon: 'bolt', label: 'Motivate me', hint: 'Get things done', run: () => quickAsk('I need some motivation to get things done. Give me a boost.') },
+        ]
+    },
 ];
 
 function openCommandPalette() {
@@ -1995,10 +2000,10 @@ function closeCommandPalette() {
 }
 
 function renderCommands() {
-    const q    = (document.getElementById('cmd-input') || {}).value || '';
+    const q = (document.getElementById('cmd-input') || {}).value || '';
     const list = document.getElementById('cmd-list');
     if (!list) return;
-    const ql  = q.toLowerCase().trim();
+    const ql = q.toLowerCase().trim();
     const all = [];
     COMMANDS.forEach(g => {
         g.items.forEach(it => {
@@ -2034,9 +2039,9 @@ function renderCommands() {
 function runCmd(i, el) {
     const list = document.getElementById('cmd-list');
     if (!list) return;
-    const q    = (document.getElementById('cmd-input') || {}).value || '';
-    const ql   = q.toLowerCase().trim();
-    const all  = [];
+    const q = (document.getElementById('cmd-input') || {}).value || '';
+    const ql = q.toLowerCase().trim();
+    const all = [];
     COMMANDS.forEach(g => g.items.forEach(it => {
         if (!ql || (it.label + ' ' + it.hint).toLowerCase().includes(ql)) all.push({ ...it, group: g.group });
     }));
@@ -2088,7 +2093,7 @@ function handleGlobalKeydown(e) {
     }
     if (e.ctrlKey && e.key >= '1' && e.key <= '8') {
         e.preventDefault();
-        const views = ['dashboard','routine','attendance','budget','cgpa','tasks','chat','settings'];
+        const views = ['dashboard', 'routine', 'attendance', 'budget', 'cgpa', 'tasks', 'chat', 'settings'];
         showView(views[parseInt(e.key) - 1]);
     }
 }
