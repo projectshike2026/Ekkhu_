@@ -1474,8 +1474,11 @@ async function startRecording(mode) {
         return;
     }
     
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        toast('Microphone not supported in this browser', 'error');
+    // Permanent fix for mobile: Always use native fallback to avoid getUserMedia async/permission issues
+    const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isMobileDevice || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast('Using native recorder...', 'info');
+        startNativeRecordingFallback(mode);
         return;
     }
     
@@ -1575,56 +1578,64 @@ function startNativeRecordingFallback(mode) {
         document.body.appendChild(input);
         
         input.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            
-            const isVoice = (input.dataset.mode === 'voice');
-            
-            if (isVoice) setVoiceUIState('thinking');
-            else {
-                ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'mic'; el.classList.remove('text-red-500'); } });
-                if (isDesktopDevice()) showDesktopTyping();
-            }
-            
-            const formData = new FormData();
-            formData.append('audio', file, file.name || 'voice.m4a');
-            
-            try {
-                const response = await fetch('/voice', { method: 'POST', body: formData });
-                const data = await response.json();
-                
-                if (!response.ok || data.error) throw new Error(data.error || 'API Error');
-                
-                if (data.text) {
-                    if (isVoice) {
-                        sendVoiceChat(data.text);
-                    } else {
-                        if (isDesktopDevice()) hideDesktopTyping();
-                        const chatInput = getChatInput();
-                        if (chatInput) { 
-                            chatInput.value = data.text; 
-                            chatInput.dispatchEvent(new Event('input')); 
-                        }
-                        if (isDesktopDevice()) autoGrowDeskInput();
-                    }
-                } else {
-                    if (isVoice) setVoiceUIState('idle');
-                }
-            } catch (err) {
-                console.warn('Voice API error:', err);
-                toast('Could not understand audio.', 'error');
-                if (isVoice) setVoiceUIState('idle');
-                if (!isVoice && isDesktopDevice()) hideDesktopTyping();
-            }
-            
-            // Reset input value so it triggers change again if same file is picked
-            input.value = '';
+            window.handleMobileVoiceInput(e.target, e.target.dataset.mode);
         });
     }
     
     input.dataset.mode = mode;
     input.click();
 }
+
+window.handleMobileVoiceInput = async function(input, mode) {
+    const file = input.files[0];
+    if (!file) {
+        toast('Voice input cancelled.', 'warning');
+        return;
+    }
+    
+    const isVoice = (mode === 'voice');
+    
+    if (isVoice) setVoiceUIState('thinking');
+    else {
+        ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'mic'; el.classList.remove('text-red-500'); } });
+        if (isDesktopDevice()) showDesktopTyping();
+    }
+    
+    const formData = new FormData();
+    formData.append('audio', file, file.name || 'voice.m4a');
+    
+    try {
+        const response = await fetch('/voice', { method: 'POST', body: formData });
+        const data = await response.json();
+        
+        if (!response.ok || data.error) throw new Error(data.error || 'API Error');
+        
+        if (data.text) {
+            if (isVoice) {
+                sendVoiceChat(data.text);
+            } else {
+                if (isDesktopDevice()) hideDesktopTyping();
+                const chatInput = getChatInput();
+                if (chatInput) { 
+                    chatInput.value = data.text; 
+                    chatInput.dispatchEvent(new Event('input')); 
+                }
+                if (isDesktopDevice()) autoGrowDeskInput();
+            }
+        } else {
+            alert('Could not hear anything in the audio. Please try speaking closer to the microphone or in a quieter environment.');
+            if (isVoice) setVoiceUIState('idle');
+        }
+    } catch (err) {
+        console.warn('Voice API error:', err);
+        alert('Server Error: Could not process voice input.\n\nDetails: ' + err.message);
+        if (isVoice) setVoiceUIState('idle');
+        if (!isVoice && isDesktopDevice()) hideDesktopTyping();
+    }
+    
+    // Reset input value so it triggers change again if same file is picked
+    input.value = '';
+};
 
 function toggleMic() {
     startRecording('text');
