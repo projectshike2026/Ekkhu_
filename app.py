@@ -1161,41 +1161,40 @@ def tts_debug():
 # ------------------------------------------------------------------
 @app.route('/chat', methods=['POST'])
 def chat():
-    user_id = get_current_user_id()
-    data = request.json or {}
-    if not data.get('message', '').strip():
-        return jsonify({"error": "No message provided"}), 400
-    user_text = data['message'].strip()
-    save_message(user_id, 'user', user_text)
-
-    if is_crisis(user_text):
-        save_message(user_id, 'assistant', CRISIS_MESSAGE['reply'], CRISIS_MESSAGE['emotion'])
-        return jsonify(CRISIS_MESSAGE)
-
-    history = get_chat_history(user_id)
-
-    # Check if this is the first message after a significant time gap
-    gap_note = ""
-    if is_first_message_after_gap(user_id, gap_hours=4):
-        gap_note = (
-            "\n\n[SYSTEM NOTE: This is the user's FIRST message after a significant time gap. "
-            "Do NOT continue the previous conversation topic. "
-            "Greet them fresh and naturally like a real friend coming back after time away. "
-            "If they said something simple like 'hi', respond warmly and naturally — "
-            "acknowledge the gap casually if it's been a day or more. Keep it real, not robotic.]"
-        )
-
-    full_system_prompt = build_system_prompt(user_id) + gap_note + "\n\n" + get_user_context(user_id)
-    messages = [{"role": "system", "content": full_system_prompt}] + history
-
     try:
+        user_id = get_current_user_id()
+        data = request.json or {}
+        if not data.get('message', '').strip():
+            return jsonify({"error": "No message provided"}), 400
+        user_text = data['message'].strip()
+        save_message(user_id, 'user', user_text)
+
+        if is_crisis(user_text):
+            save_message(user_id, 'assistant', CRISIS_MESSAGE['reply'], CRISIS_MESSAGE['emotion'])
+            return jsonify(CRISIS_MESSAGE)
+
+        history = get_chat_history(user_id)
+
+        gap_note = ""
+        if is_first_message_after_gap(user_id, gap_hours=4):
+            gap_note = (
+                "\n\n[SYSTEM NOTE: This is the user's FIRST message after a significant time gap. "
+                "Do NOT continue the previous conversation topic. "
+                "Greet them fresh and naturally like a real friend coming back after time away. "
+                "If they said something simple like 'hi', respond warmly and naturally — "
+                "acknowledge the gap casually if it's been a day or more. Keep it real, not robotic.]"
+            )
+
+        full_system_prompt = build_system_prompt(user_id) + gap_note + "\n\n" + get_user_context(user_id)
+        messages = [{"role": "system", "content": full_system_prompt}] + history
+
         response_text = call_llm(messages)
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({
             "reply": "Sorry, I can't connect right now. Try again in a moment.",
             "emotion": "neutral",
-            "debug_error": str(e)
+            "debug_error": f"Top level chat error: {type(e).__name__} - {str(e)}"
         }), 500
 
     try:
