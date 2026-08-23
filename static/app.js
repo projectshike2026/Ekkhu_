@@ -1553,7 +1553,7 @@ async function startRecording(mode) {
         
     } catch (err) {
         console.warn("getUserMedia error:", err);
-        toast('Microphone permission denied! Check browser settings.', 'error');
+        toast(`Mic Error: ${err.name} - ${err.message}`, 'error');
     }
 }
 
