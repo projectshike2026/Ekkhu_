@@ -8,6 +8,7 @@ import shutil
 from datetime import datetime, date, timedelta
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
+import requests
 from prompt import get_system_prompt, SYSTEM_PROMPT
 
 # Optional libs (graceful if missing)
@@ -84,6 +85,18 @@ ACCENT_COLORS = ['#af101a','#6366f1','#10B981','#F59E0B','#0ea5e9','#8b5cf6','#e
 DEFAULT_CONFIG = {"invite_code": "EKKU2025", "users": []}
 
 def load_config():
+    if os.getenv("TURSO_DATABASE_URL"):
+        try:
+            conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
+            c = conn.cursor()
+            c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
+            c.execute("SELECT value FROM global_store WHERE key='users_config'")
+            row = c.fetchone()
+            if row: return json.loads(row[0] if isinstance(row, (tuple, list)) else row['value'])
+        except Exception as e:
+            print("[TURSO] Failed to load config:", e)
+        return DEFAULT_CONFIG.copy()
+
     if not os.path.exists(USERS_FILE):
         with open(USERS_FILE, 'w') as f:
             json.dump(DEFAULT_CONFIG, f, indent=2)
@@ -101,6 +114,17 @@ def load_users():
     return load_config()['users']
 
 def save_config(cfg):
+    if os.getenv("TURSO_DATABASE_URL"):
+        try:
+            conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
+            c = conn.cursor()
+            c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
+            c.execute("INSERT INTO global_store (key, value) VALUES ('users_config', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(cfg),))
+            conn.commit()
+            return
+        except Exception as e:
+            print("[TURSO] Failed to save config:", e)
+            
     with open(USERS_FILE, 'w') as f:
         json.dump(cfg, f, indent=2)
 
@@ -144,13 +168,33 @@ def _get_cipher():
     if not HAS_CRYPTO:
         return None
     key = os.getenv('EKKU_SECRET_KEY')
-    key_file = 'ekku.key'
     # Try env key first
     if key:
         try:
             return Fernet(key.encode())
         except Exception:
-            print("[CIPHER] EKKU_SECRET_KEY is invalid, falling back to key file.")
+            print("[CIPHER] EKKU_SECRET_KEY is invalid, falling back to db/file.")
+            
+    turso_url = os.getenv("TURSO_DATABASE_URL")
+    if turso_url:
+        try:
+            conn = TursoConnection(turso_url, os.getenv("TURSO_AUTH_TOKEN"), "global")
+            c = conn.cursor()
+            c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
+            c.execute("SELECT value FROM global_store WHERE key='ekku_key'")
+            row = c.fetchone()
+            if row:
+                return Fernet(row[0].encode() if isinstance(row, (tuple, list)) else row['value'].encode())
+            else:
+                new_key = Fernet.generate_key()
+                c.execute("INSERT INTO global_store (key, value) VALUES ('ekku_key', ?)", (new_key.decode(),))
+                conn.commit()
+                print("[CIPHER] Generated new Fernet key and saved to Turso")
+                return Fernet(new_key)
+        except Exception as e:
+            print("[CIPHER] Failed to load/save key to Turso:", e)
+
+    key_file = 'ekku.key'
     # Try key file
     if os.path.exists(key_file):
         try:
@@ -186,11 +230,109 @@ def decrypt_text(text):
         return text
 
 # ------------------------------------------------------------------
-# Database — per-user
+# Database — Turso & Local
 # ------------------------------------------------------------------
+class TursoRow:
+    def __init__(self, cols, vals):
+        self._cols = cols
+        self._vals = vals
+        self._d = dict(zip(cols, vals))
+    def __getitem__(self, key):
+        if isinstance(key, int): return self._vals[key]
+        return self._d[key]
+    def get(self, key, default=None): return self._d.get(key, default)
+    def __iter__(self): return iter(self._vals)
+    def keys(self): return self._cols
+
+class TursoCursor:
+    def __init__(self, conn, user_id):
+        self.conn = conn
+        self.user_id = user_id
+        self.rows = []
+        self._row_idx = 0
+        self.row_factory = None
+        self.tables = ["routine", "attendance", "budget", "tasks", "plans", "grades", "chat_history", "long_term_memory"]
+
+    def _rewrite(self, sql):
+        # Prevent double prefixing if it's already prefixed
+        for t in self.tables:
+            sql = re.sub(rf'\b{t}\b', f'{self.user_id}_{t}', sql, flags=re.IGNORECASE)
+        # Restore if it accidentally replaced global_store
+        sql = sql.replace(f'{self.user_id}_global_store', 'global_store')
+        return sql
+
+    def execute(self, sql, params=None):
+        sql = self._rewrite(sql)
+        args = []
+        if params:
+            for p in params:
+                args.append({"type": "text", "value": str(p)} if p is not None else {"type": "null"})
+        
+        stmt = {"sql": sql}
+        if args: stmt["args"] = args
+            
+        payload = {"requests": [{"type": "execute", "stmt": stmt}, {"type": "close"}]}
+        headers = {"Authorization": f"Bearer {self.conn.token}", "Content-Type": "application/json"}
+        http_url = self.conn.url.replace("libsql://", "https://") + "/v2/pipeline"
+        
+        try:
+            resp = requests.post(http_url, headers=headers, json=payload, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            raise sqlite3.OperationalError(f"Turso Network Error: {e}")
+        
+        result = data.get("results", [])[0]
+        if result.get("type") == "ok":
+            res = result["response"]["result"]
+            cols = [c["name"] for c in res.get("cols", [])]
+            self.rows = []
+            for r in res.get("rows", []):
+                vals = [val.get("value") if val.get("type") != "null" else None for val in r]
+                self.rows.append(TursoRow(cols, vals) if self.row_factory else vals)
+        else:
+            err = str(result.get("error"))
+            if "no such table" in err.lower():
+                raise sqlite3.OperationalError(err)
+            raise Exception("Turso error: " + err)
+            
+        self._row_idx = 0
+        return self
+
+    def fetchall(self): return self.rows
+    def fetchone(self):
+        if self._row_idx < len(self.rows):
+            r = self.rows[self._row_idx]
+            self._row_idx += 1
+            return r
+        return None
+
+class TursoConnection:
+    def __init__(self, url, token, user_id):
+        self.url = url
+        self.token = token
+        self.user_id = user_id
+        self.row_factory = None
+        
+    def cursor(self):
+        c = TursoCursor(self, self.user_id)
+        if self.row_factory:
+            c.row_factory = self.row_factory
+        return c
+        
+    def commit(self): pass
+    def close(self): pass
+
 def get_db(user_id='A', skip_init=False):
-    db_name = f'user_{user_id}.db'
-    conn = sqlite3.connect(db_name)
+    turso_url = os.getenv("TURSO_DATABASE_URL")
+    turso_token = os.getenv("TURSO_AUTH_TOKEN")
+    
+    if turso_url and turso_token:
+        conn = TursoConnection(turso_url, turso_token, user_id)
+    else:
+        db_name = f'user_{user_id}.db'
+        conn = sqlite3.connect(db_name)
+        
     conn.row_factory = sqlite3.Row
     if not skip_init:
         c = conn.cursor()

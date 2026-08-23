@@ -11,4 +11,5 @@ users.json
 *.wav
 *.mp3
 voice_demo.*
+TOKENS.TXT
 

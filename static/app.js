@@ -1430,7 +1430,16 @@ async function speakText(text, emotion = "neutral") {
                 }
             };
             
-            currentAudio.play();
+            // Mobile Chrome requires handling potential autoplay rejection
+            const playPromise = currentAudio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(err => {
+                    console.warn('Audio autoplay blocked (mobile):', err);
+                    // Fall back to browser TTS which may work better on mobile
+                    browserTTSFallback(text);
+                    if (chatMode === 'voice') setVoiceUIState('idle');
+                });
+            }
         } else {
             console.warn("Server TTS failed (rate limit/blocked), falling back to browser TTS", data.error || '');
             browserTTSFallback(text);
@@ -1450,20 +1459,27 @@ function toggleMic() {
     recognition = new SpeechRecognition();
     recognition.lang = 'bn-BD';
     recognition.interimResults = false;
+    recognition.continuous = false;   // Mobile Chrome fix
+    recognition.maxAlternatives = 1;
     recognition.onstart = () => {
         ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic_off'; });
     };
     recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
+        const transcript = Array.from(event.results).map(r => r[0].transcript).join(' ').trim();
         const input = getChatInput();
         if (input) input.value = transcript;
         if (isDesktopDevice()) autoGrowDeskInput();
+    };
+    recognition.onerror = (e) => {
+        console.warn('Mic error:', e.error);
+        ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic'; });
+        recognition = null;
     };
     recognition.onend = () => {
         ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic'; });
         recognition = null;
     };
-    recognition.start();
+    try { recognition.start(); } catch(e) { recognition = null; }
 }
 
 function setVoiceUIState(state) {
@@ -1498,45 +1514,83 @@ function setVoiceUIState(state) {
 }
 
 let voiceModeRecognition = null;
+let _voiceGotResult = false; // tracks whether onresult fired before onend
+let _voiceSafetyTimer = null;
+
+function _clearVoiceSafetyTimer() {
+    if (_voiceSafetyTimer) { clearTimeout(_voiceSafetyTimer); _voiceSafetyTimer = null; }
+}
+
 function startVoiceInteraction() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { toast('Voice input not supported', 'error'); return; }
     
     if (voiceModeRecognition) {
+        _clearVoiceSafetyTimer();
         voiceModeRecognition.stop();
         voiceModeRecognition = null;
         setVoiceUIState('idle');
         return;
     }
     
+    _voiceGotResult = false;
     voiceModeRecognition = new SpeechRecognition();
     voiceModeRecognition.lang = 'bn-BD';
     voiceModeRecognition.interimResults = false;
+    voiceModeRecognition.continuous = false;   // Mobile Chrome fix
+    voiceModeRecognition.maxAlternatives = 1;
     
     voiceModeRecognition.onstart = () => {
         if (currentAudio) { currentAudio.pause(); currentAudio = null; }
         setVoiceUIState('listening');
+        // Safety timeout: if mobile Chrome hangs for 10 s, force stop
+        _voiceSafetyTimer = setTimeout(() => {
+            if (voiceModeRecognition) {
+                voiceModeRecognition.stop();
+            }
+        }, 10000);
     };
     
     voiceModeRecognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript.trim()) {
+        _voiceGotResult = true;
+        _clearVoiceSafetyTimer();
+        const transcript = Array.from(event.results)
+            .map(r => r[0].transcript).join(' ').trim();
+        if (transcript) {
             sendVoiceChat(transcript);
         } else {
             setVoiceUIState('idle');
         }
     };
     
-    voiceModeRecognition.onend = () => {
+    voiceModeRecognition.onerror = (e) => {
+        _clearVoiceSafetyTimer();
         voiceModeRecognition = null;
-        // If we haven't switched to thinking (i.e. no result), reset to idle
-        const statusText = isDesktopDevice() ? document.getElementById('desk-voice-status')?.textContent : document.getElementById('mob-voice-status')?.textContent;
-        if (statusText === "Listening...") {
+        // 'no-speech' is common on mobile — just reset quietly
+        if (e.error === 'no-speech' || e.error === 'audio-capture') {
+            setVoiceUIState('idle');
+        } else {
+            console.warn('Voice recognition error:', e.error);
             setVoiceUIState('idle');
         }
     };
     
-    voiceModeRecognition.start();
+    voiceModeRecognition.onend = () => {
+        _clearVoiceSafetyTimer();
+        voiceModeRecognition = null;
+        // Only reset to idle if we never got a result (avoids clobbering 'thinking' state)
+        if (!_voiceGotResult) {
+            setVoiceUIState('idle');
+        }
+    };
+    
+    try {
+        voiceModeRecognition.start();
+    } catch (err) {
+        console.warn('Could not start recognition:', err);
+        voiceModeRecognition = null;
+        setVoiceUIState('idle');
+    }
 }
 
 async function sendVoiceChat(msg) {
