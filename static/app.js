@@ -25,14 +25,14 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
+let mediaRecorder = null;
+let audioChunks = [];
+let voiceModeActive = false; // true if recording for voice tab, false if inline mic
+
 function abortAllRecognition() {
-    if (voiceModeRecognition) {
-        try { voiceModeRecognition.abort(); } catch(e) {}
-        voiceModeRecognition = null;
-    }
-    if (recognition) {
-        try { recognition.abort(); } catch(e) {}
-        recognition = null;
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        audioChunks = []; // Clear chunks so it doesn't send to API
+        mediaRecorder.stop();
     }
     setVoiceUIState('idle');
 }
@@ -43,19 +43,6 @@ function switchChatMode(mode) {
 
     chatMode = mode;
     const isVoice = mode === 'voice';
-
-    // Pre-flight mic check on tab switch (triggered by user gesture) to cache consent
-    if (isVoice && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(stream => {
-                stream.getTracks().forEach(t => t.stop());
-                console.log('[Mic Check] Permission primed and cached.');
-            })
-            .catch(e => {
-                console.warn('[Mic Check] Pre-flight permission denied/failed:', e);
-                toast('Please allow microphone access in browser settings.', 'error');
-            });
-    }
 
     // Desktop UI
     const dTextBtn = document.getElementById('desk-mode-text');
@@ -1480,70 +1467,102 @@ async function speakText(text, emotion = "neutral") {
     }
 }
 
-// ── Mic (text-mode inline mic button) ────────────────────────────
-let recognition = null;
-function toggleMic() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { toast('Voice input not supported in this browser', 'error'); return; }
-
-    if (recognition) {
-        try { recognition.abort(); } catch(e) {}
-        recognition = null;
-        ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic'; });
+// ── Unified Mic Recorder (MediaRecorder -> Groq Whisper) ──
+async function startRecording(mode) {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
         return;
     }
-    const rec = new SR();
-    rec.lang = 'bn-BD';
-    rec.interimResults = true; // KEY FIX for mobile stability
-    rec.continuous = false;
-    rec.maxAlternatives = 1;
     
-    rec.onstart = () => {
-        ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic_off'; });
-    };
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast('Microphone not supported in this browser', 'error');
+        return;
+    }
     
-    rec.onspeechend = () => { 
-        try { rec.stop(); } catch(e) {} 
-    };
-    
-    rec.onresult = (event) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        voiceModeActive = (mode === 'voice');
+        
+        if (voiceModeActive) {
+            setVoiceUIState('listening');
+            if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+        } else {
+            ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'stop_circle'; el.classList.add('text-red-500'); } });
+        }
+        
+        mediaRecorder.addEventListener("dataavailable", event => {
+            if (event.data.size > 0) audioChunks.push(event.data);
+        });
+        
+        mediaRecorder.addEventListener("stop", async () => {
+            stream.getTracks().forEach(track => track.stop()); // release mic
+            
+            const isVoice = voiceModeActive;
+            mediaRecorder = null;
+            
+            if (audioChunks.length === 0) {
+                if (isVoice) setVoiceUIState('idle');
+                else {
+                    ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'mic'; el.classList.remove('text-red-500'); } });
+                }
+                return;
             }
-        }
+            
+            if (isVoice) setVoiceUIState('thinking');
+            else {
+                ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'mic'; el.classList.remove('text-red-500'); } });
+                if (isDesktopDevice()) showDesktopTyping();
+            }
+            
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'voice.webm');
+            
+            try {
+                const response = await fetch('/voice', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                if (!response.ok || data.error) throw new Error(data.error || 'API Error');
+                
+                if (data.text) {
+                    if (isVoice) {
+                        sendVoiceChat(data.text);
+                    } else {
+                        if (isDesktopDevice()) hideDesktopTyping();
+                        const input = getChatInput();
+                        if (input) { 
+                            input.value = data.text; 
+                            input.dispatchEvent(new Event('input')); 
+                        }
+                        if (isDesktopDevice()) autoGrowDeskInput();
+                    }
+                } else {
+                    if (isVoice) setVoiceUIState('idle');
+                }
+            } catch (e) {
+                console.warn('Voice API error:', e);
+                toast('Could not understand audio.', 'error');
+                if (isVoice) setVoiceUIState('idle');
+                if (!isVoice && isDesktopDevice()) hideDesktopTyping();
+            }
+        });
         
-        if (!finalTranscript) return;
+        mediaRecorder.start();
         
-        const transcript = finalTranscript.trim();
-        const input = getChatInput();
-        if (input) { 
-            input.value = transcript; 
-            input.dispatchEvent(new Event('input')); 
-        }
-        if (isDesktopDevice()) autoGrowDeskInput();
-        
-        if (recognition === rec) {
-            try { rec.abort(); } catch(e) {}
-            recognition = null;
-            ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic'; });
-        }
-    };
-    
-    rec.onerror = (e) => {
-        console.warn('Mic error:', e.error);
-        ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic'; });
-        recognition = null;
-    };
-    
-    rec.onend = () => {
-        ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'mic'; });
-        recognition = null;
-    };
-    
-    recognition = rec;
-    try { rec.start(); } catch(e) { recognition = null; }
+    } catch (err) {
+        console.warn("getUserMedia error:", err);
+        toast('Microphone permission denied! Check browser settings.', 'error');
+    }
+}
+
+function toggleMic() {
+    startRecording('text');
+}
+
+function startVoiceInteraction() {
+    startRecording('voice');
 }
 
 function setVoiceUIState(state) {
@@ -2199,21 +2218,3 @@ if (cmdInput) {
 document.addEventListener('DOMContentLoaded', () => {
     initUserSelect();
 });
-
-// ── Mobile Mic Permission Primer ──
-// Primes the mic permission on the very first user interaction (click/tap) on the page.
-// This caches the browser permission early, enabling SpeechRecognition to start synchronously.
-function primeMicPermission() {
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(stream => {
-                stream.getTracks().forEach(t => t.stop());
-                console.log('[Mic Primer] Permission successfully primed.');
-            })
-            .catch(e => console.warn('[Mic Primer] Permission failed/denied:', e));
-    }
-    document.removeEventListener('click', primeMicPermission);
-    document.removeEventListener('touchstart', primeMicPermission);
-}
-document.addEventListener('click', primeMicPermission, { once: true });
-document.addEventListener('touchstart', primeMicPermission, { once: true });

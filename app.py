@@ -875,7 +875,7 @@ def api_change_invite_code():
 # ------------------------------------------------------------------
 @app.route('/voice', methods=['POST'])
 def voice_input():
-    """Accept audio file and return transcribed text using speech_recognition."""
+    """Accept audio file and return transcribed text using Groq Whisper."""
     if 'audio' not in request.files:
         return jsonify({"error": "No audio file provided"}), 400
     
@@ -884,32 +884,47 @@ def voice_input():
         return jsonify({"error": "No audio file selected"}), 400
     
     try:
-        import speech_recognition as sr
-        import io
+        import tempfile, os as _os
         
-        # Read audio file
-        audio_data = audio_file.read()
+        # Determine file extension from mimetype
+        mime = audio_file.mimetype or 'audio/webm'
+        ext_map = {
+            'audio/webm': '.webm', 'audio/ogg': '.ogg',
+            'audio/mp4': '.m4a', 'audio/mpeg': '.mp3',
+            'audio/wav': '.wav', 'audio/x-wav': '.wav',
+        }
+        ext = ext_map.get(mime, '.webm')
         
-        # Use speech_recognition to transcribe
-        r = sr.Recognizer()
-        audio_io = io.BytesIO(audio_data)
+        # Save to temp file (Groq API needs a file-like object with a name)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        audio_file.save(tmp)
+        tmp.close()
         
-        with sr.AudioFile(audio_io) as source:
-            audio = r.record(source)
-        
-        # Try Google Speech Recognition (free)
         try:
-            text = r.recognize_google(audio, language='bn-BD')
-        except sr.UnknownValueError:
-            # Fallback to English
-            try:
-                text = r.recognize_google(audio, language='en-US')
-            except sr.UnknownValueError:
-                return jsonify({"error": "Could not understand audio"}), 400
-        except sr.RequestError as e:
-            return jsonify({"error": f"Speech recognition service error: {e}"}), 500
-        
-        return jsonify({"text": text})
+            # Use Groq Whisper API
+            if not GROQ_API_KEY:
+                raise Exception("GROQ_API_KEY not set")
+            
+            with open(tmp.name, 'rb') as f:
+                resp = requests.post(
+                    'https://api.groq.com/openai/v1/audio/transcriptions',
+                    headers={'Authorization': f'Bearer {GROQ_API_KEY}'},
+                    files={'file': (f'audio{ext}', f, mime)},
+                    data={'model': 'whisper-large-v3', 'language': 'bn'},
+                    timeout=15
+                )
+            
+            if resp.status_code == 200:
+                text = resp.json().get('text', '').strip()
+                if not text:
+                    return jsonify({"error": "Could not understand audio"}), 400
+                return jsonify({"text": text})
+            else:
+                print(f"[Whisper] Groq API error {resp.status_code}: {resp.text}")
+                return jsonify({"error": f"Transcription failed ({resp.status_code})"}), 500
+        finally:
+            _os.unlink(tmp.name)
+            
     except Exception as e:
         print("Voice input error:", e)
         return jsonify({"error": str(e)}), 500
