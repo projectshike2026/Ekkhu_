@@ -1515,6 +1515,7 @@ async function startRecording(mode) {
             stream.getTracks().forEach(track => track.stop()); // release mic
             
             const isVoice = voiceModeActive;
+            const actualMime = mediaRecorder ? (mediaRecorder.actualMimeType || 'audio/webm') : 'audio/webm';
             mediaRecorder = null;
             
             if (audioChunks.length === 0) {
@@ -1531,7 +1532,6 @@ async function startRecording(mode) {
                 if (isDesktopDevice()) showDesktopTyping();
             }
             
-            const actualMime = mediaRecorder.actualMimeType || 'audio/webm';
             const ext = actualMime.includes('mp4') ? 'mp4' : (actualMime.includes('ogg') ? 'ogg' : 'webm');
             
             const audioBlob = new Blob(audioChunks, { type: actualMime });
