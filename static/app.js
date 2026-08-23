@@ -1552,10 +1552,14 @@ function startVoiceInteraction() {
     };
     
     voiceModeRecognition.onresult = (event) => {
+        if (_voiceGotResult) return; // prevent double-fire on mobile
         _voiceGotResult = true;
         _clearVoiceSafetyTimer();
         const transcript = Array.from(event.results)
             .map(r => r[0].transcript).join(' ').trim();
+        // Stop recognition immediately after getting result (mobile Chrome fix)
+        try { voiceModeRecognition && voiceModeRecognition.abort(); } catch(e) {}
+        voiceModeRecognition = null;
         if (transcript) {
             sendVoiceChat(transcript);
         } else {
@@ -1564,15 +1568,12 @@ function startVoiceInteraction() {
     };
     
     voiceModeRecognition.onerror = (e) => {
+        if (_voiceGotResult) return; // already handled
         _clearVoiceSafetyTimer();
         voiceModeRecognition = null;
-        // 'no-speech' is common on mobile — just reset quietly
-        if (e.error === 'no-speech' || e.error === 'audio-capture') {
-            setVoiceUIState('idle');
-        } else {
-            console.warn('Voice recognition error:', e.error);
-            setVoiceUIState('idle');
-        }
+        console.warn('Voice recognition error:', e.error);
+        // 'no-speech' / 'audio-capture' — reset quietly
+        setVoiceUIState('idle');
     };
     
     voiceModeRecognition.onend = () => {
@@ -1582,6 +1583,8 @@ function startVoiceInteraction() {
         if (!_voiceGotResult) {
             setVoiceUIState('idle');
         }
+        // Always reset flag so next session starts fresh
+        _voiceGotResult = false;
     };
     
     try {
@@ -1589,6 +1592,7 @@ function startVoiceInteraction() {
     } catch (err) {
         console.warn('Could not start recognition:', err);
         voiceModeRecognition = null;
+        _voiceGotResult = false;
         setVoiceUIState('idle');
     }
 }
