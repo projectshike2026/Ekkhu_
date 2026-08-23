@@ -1467,12 +1467,99 @@ async function speakText(text, emotion = "neutral") {
     }
 }
 
-// ── Unified Mic Recorder (MediaRecorder -> Groq Whisper) ──
+// ── Native Browser Speech Recognition & WebRTC Fallback ──
 async function startRecording(mode) {
+    if (window._recognition && window._recognition.isListening) {
+        window._recognition.stop();
+        return;
+    }
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
         return;
     }
+    
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRec) {
+        startBrowserSpeechRecognition(mode, SpeechRec);
+    } else {
+        startWebRTCRecording(mode);
+    }
+}
+
+function startBrowserSpeechRecognition(mode, SpeechRec) {
+    const recognition = new SpeechRec();
+    recognition.lang = 'bn-BD';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    
+    window._recognition = recognition;
+    recognition.isListening = true;
+    const isVoice = (mode === 'voice');
+    
+    let finalTranscript = '';
+    const input = getChatInput();
+    const initialText = input ? input.value : '';
+
+    if (isVoice) {
+        setVoiceUIState('listening');
+        if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    } else {
+        ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'stop_circle'; el.classList.add('text-red-500'); } });
+    }
+
+    recognition.onresult = (event) => {
+        let interimTranscript = '';
+        let currentFinal = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                currentFinal += event.results[i][0].transcript;
+            } else {
+                interimTranscript += event.results[i][0].transcript;
+            }
+        }
+        
+        finalTranscript += currentFinal;
+        
+        if (!isVoice && input) {
+            const separator = (initialText && finalTranscript) ? ' ' : '';
+            input.value = initialText + separator + finalTranscript + interimTranscript;
+            input.dispatchEvent(new Event('input'));
+            if (isDesktopDevice()) autoGrowDeskInput();
+        }
+    };
+
+    recognition.onerror = (event) => {
+        console.warn("Speech recognition error:", event.error);
+        if (event.error === 'not-allowed') {
+            alert("Microphone permission denied.");
+        }
+        recognition.stop();
+    };
+
+    recognition.onend = () => {
+        recognition.isListening = false;
+        if (isVoice) {
+            if (finalTranscript.trim()) {
+                sendVoiceChat(finalTranscript.trim());
+            } else {
+                setVoiceUIState('idle');
+            }
+        } else {
+            ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'mic'; el.classList.remove('text-red-500'); } });
+            if (isDesktopDevice()) showDesktopTyping();
+            setTimeout(() => { if (isDesktopDevice()) hideDesktopTyping(); }, 500);
+        }
+    };
+
+    try {
+        recognition.start();
+    } catch (e) {
+        console.warn("Could not start speech recognition:", e);
+        startWebRTCRecording(mode); // fallback if it fails to start
+    }
+}
+
+async function startWebRTCRecording(mode) {
     
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         alert('Microphone access is not supported. If you are on a mobile device, please make sure you are accessing this site via HTTPS (secure connection) to enable inline voice recording.');
