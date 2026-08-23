@@ -1480,8 +1480,23 @@ async function startRecording(mode) {
     }
     
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+        
+        let mimeType = 'audio/webm';
+        if (typeof MediaRecorder.isTypeSupported === 'function') {
+            if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
+            else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+            else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
+        }
+        
+        mediaRecorder = new MediaRecorder(stream, { mimeType });
+        mediaRecorder.actualMimeType = mimeType;
         audioChunks = [];
         voiceModeActive = (mode === 'voice');
         
@@ -1516,9 +1531,12 @@ async function startRecording(mode) {
                 if (isDesktopDevice()) showDesktopTyping();
             }
             
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const actualMime = mediaRecorder.actualMimeType || 'audio/webm';
+            const ext = actualMime.includes('mp4') ? 'mp4' : (actualMime.includes('ogg') ? 'ogg' : 'webm');
+            
+            const audioBlob = new Blob(audioChunks, { type: actualMime });
             const formData = new FormData();
-            formData.append('audio', audioBlob, 'voice.webm');
+            formData.append('audio', audioBlob, `voice.${ext}`);
             
             try {
                 const response = await fetch('/voice', { method: 'POST', body: formData });
