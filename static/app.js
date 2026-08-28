@@ -1608,31 +1608,48 @@ function startVoiceInteraction() {
 function setVoiceUIState(state) {
     const isDesktop = isDesktopDevice();
     const btn = isDesktop ? document.getElementById('desk-voice-btn') : document.getElementById('mob-voice-btn');
+    const btnText = isDesktop ? document.getElementById('desk-voice-btn-text') : document.getElementById('mob-voice-btn-text');
+    const btnIcon = isDesktop ? document.getElementById('desk-voice-btn-icon') : document.getElementById('mob-voice-btn-icon');
     const status = isDesktop ? document.getElementById('desk-voice-status') : document.getElementById('mob-voice-status');
     const waves = isDesktop ? document.getElementById('desk-voice-waves') : document.getElementById('mob-voice-waves');
+
+    // Update 3D Eva Robot classes across views
+    const allRobots = [document.getElementById('desk-eva-robot'), document.getElementById('mob-eva-robot')];
+    allRobots.forEach(r => {
+        if (!r) return;
+        r.classList.remove('state-idle', 'state-listening', 'state-thinking', 'state-speaking');
+        r.classList.add(`state-${state}`);
+    });
 
     if (!btn) return;
 
     if (state === 'idle') {
-        btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[56px] drop-shadow-md'}">mic</span>`;
-        btn.classList.remove('animate-pulse');
-        status.textContent = "Tap to speak";
+        if (btnIcon) btnIcon.textContent = 'mic';
+        if (btnText) btnText.textContent = 'Start Talking';
+        btn.classList.remove('animate-pulse', 'from-cyan-500', 'to-blue-500', 'from-rose-500');
+        btn.classList.add('from-primary', 'to-rose-600');
+        if (status) status.textContent = "Tap to speak";
         if (waves) waves.style.opacity = '0';
     } else if (state === 'listening') {
-        btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[56px] drop-shadow-md'}">mic</span>`;
-        btn.classList.add('animate-pulse');
-        status.textContent = "Listening...";
-        if (waves) waves.style.opacity = '1'; // Show glow
+        if (btnIcon) btnIcon.textContent = 'graphic_eq';
+        if (btnText) btnText.textContent = 'Listening...';
+        btn.classList.add('animate-pulse', 'from-cyan-500', 'to-blue-500');
+        btn.classList.remove('from-primary', 'to-rose-600', 'from-rose-500');
+        if (status) status.textContent = "Listening to you...";
+        if (waves) waves.style.opacity = '1';
     } else if (state === 'thinking') {
-        btn.innerHTML = `<div class="typing-dots"><span class="bg-white"></span><span class="bg-white"></span><span class="bg-white"></span></div>`;
+        if (btnIcon) btnIcon.textContent = 'psychology';
+        if (btnText) btnText.textContent = 'Thinking...';
         btn.classList.remove('animate-pulse');
-        status.textContent = "Thinking...";
+        if (status) status.textContent = "Ekkhu is thinking...";
         if (waves) waves.style.opacity = '1';
     } else if (state === 'speaking') {
-        btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[56px] drop-shadow-md'}">smart_toy</span>`;
+        if (btnIcon) btnIcon.textContent = 'volume_up';
+        if (btnText) btnText.textContent = 'Speaking...';
         btn.classList.remove('animate-pulse');
-        status.textContent = "Ekkhu is speaking";
-        // Waves opacity is handled in currentAudio.onplay
+        btn.classList.add('from-rose-500', 'to-primary');
+        if (status) status.textContent = "Ekkhu is speaking";
+        if (waves) waves.style.opacity = '1';
     }
 }
 
