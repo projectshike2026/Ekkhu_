@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  EKKU — Multi-User Frontend v2.0                            ║
+// ║  EKKHU — Multi-User Frontend v2.0                           ║
 // ╚══════════════════════════════════════════════════════════════╝
 
 // ─── Globals ────────────────────────────────────────────────────
@@ -1221,8 +1221,8 @@ async function renderStaggeredReply(messages, emotion, isDesktop, ttsText = null
                 if (cont) { cont.appendChild(typDiv); cont.scrollTop = cont.scrollHeight; }
             }
 
-            // Delay proportional to message length: 30ms per char, clamped 600–2500ms
-            const delay = Math.min(Math.max(msg.length * 30, 600), 2500);
+            // Delay proportional to message length: 10ms per char, clamped 250–750ms
+            const delay = Math.min(Math.max(msg.length * 10, 250), 750);
             await new Promise(r => setTimeout(r, delay));
 
             // Remove mobile typing indicator
@@ -1354,7 +1354,7 @@ function addDesktopMsg(text, sender, emotion = null) {
                 <span class="w-7 h-7 rounded-full bg-primary-fixed text-on-primary-fixed-variant flex items-center justify-center">
                     <span class="material-symbols-outlined text-[15px]">psychology</span>
                 </span>
-                <span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">EKKU AI</span>${em}
+                <span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">EKKHU AI</span>${em}
             </div>
             <div class="markdown-body text-body-sm text-on-surface">${renderMarkdown(text)}</div>
         </div>`;
@@ -1468,6 +1468,8 @@ async function speakText(text, emotion = "neutral") {
 }
 
 // ── Unified Mic Recorder (MediaRecorder -> Groq Whisper) ──
+let recordingStartTime = 0;
+
 async function startRecording(mode) {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
@@ -1482,23 +1484,29 @@ async function startRecording(mode) {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
+                channelCount: 1,
+                sampleRate: 16000,
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true
             }
         });
         
-        let mimeType = 'audio/webm';
+        let mimeType = '';
         if (typeof MediaRecorder.isTypeSupported === 'function') {
-            if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
+            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
+            else if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
             else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+            else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) mimeType = 'audio/ogg;codecs=opus';
             else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
         }
         
-        mediaRecorder = new MediaRecorder(stream, { mimeType });
-        mediaRecorder.actualMimeType = mimeType;
+        const options = mimeType ? { mimeType } : {};
+        mediaRecorder = new MediaRecorder(stream, options);
+        mediaRecorder.actualMimeType = mimeType || 'audio/webm';
         audioChunks = [];
         voiceModeActive = (mode === 'voice');
+        recordingStartTime = Date.now();
         
         if (voiceModeActive) {
             setVoiceUIState('listening');
@@ -1508,17 +1516,18 @@ async function startRecording(mode) {
         }
         
         mediaRecorder.addEventListener("dataavailable", event => {
-            if (event.data.size > 0) audioChunks.push(event.data);
+            if (event.data && event.data.size > 0) audioChunks.push(event.data);
         });
         
         mediaRecorder.addEventListener("stop", async () => {
             stream.getTracks().forEach(track => track.stop()); // release mic
             
             const isVoice = voiceModeActive;
+            const duration = Date.now() - recordingStartTime;
             const actualMime = mediaRecorder ? (mediaRecorder.actualMimeType || 'audio/webm') : 'audio/webm';
             mediaRecorder = null;
             
-            if (audioChunks.length === 0) {
+            if (audioChunks.length === 0 || duration < 350) {
                 if (isVoice) setVoiceUIState('idle');
                 else {
                     ['mic-icon','desk-mic-icon'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = 'mic'; el.classList.remove('text-red-500'); } });
@@ -1533,8 +1542,15 @@ async function startRecording(mode) {
             }
             
             const ext = actualMime.includes('mp4') ? 'mp4' : (actualMime.includes('ogg') ? 'ogg' : 'webm');
+            const cleanMime = actualMime.split(';')[0]; // Remove codec suffix for Blob
             
-            const audioBlob = new Blob(audioChunks, { type: actualMime });
+            const audioBlob = new Blob(audioChunks, { type: cleanMime });
+            if (audioBlob.size < 400) {
+                if (isVoice) setVoiceUIState('idle');
+                if (!isVoice && isDesktopDevice()) hideDesktopTyping();
+                return;
+            }
+
             const formData = new FormData();
             formData.append('audio', audioBlob, `voice.${ext}`);
             
@@ -1615,7 +1631,7 @@ function setVoiceUIState(state) {
     } else if (state === 'speaking') {
         btn.innerHTML = `<span class="material-symbols-outlined ${isDesktop ? 'text-[52px]' : 'text-[56px] drop-shadow-md'}">smart_toy</span>`;
         btn.classList.remove('animate-pulse');
-        status.textContent = "Ekku is speaking";
+        status.textContent = "Ekkhu is speaking";
         // Waves opacity is handled in currentAudio.onplay
     }
 }
@@ -1951,7 +1967,7 @@ const COMMANDS = [
             { icon: 'payments', label: 'Budget', hint: 'Go to budget', run: () => showView('budget') },
             { icon: 'school', label: 'CGPA', hint: 'Go to CGPA predictor', run: () => showView('cgpa') },
             { icon: 'task_alt', label: 'Tasks', hint: 'Go to tasks', run: () => showView('tasks') },
-            { icon: 'smart_toy', label: 'AI Friend (Ekku)', hint: 'Chat with your friend', run: () => showView('chat') },
+            { icon: 'smart_toy', label: 'AI Friend (Ekkhu)', hint: 'Chat with your friend', run: () => showView('chat') },
             { icon: 'settings', label: 'Settings', hint: 'Go to settings', run: () => showView('settings') },
         ]
     },
@@ -1969,7 +1985,7 @@ const COMMANDS = [
         ]
     },
     {
-        group: 'Ask Ekku', items: [
+        group: 'Ask Ekkhu', items: [
             { icon: 'today', label: 'Daily check-in', hint: 'How is your day going?', run: () => quickAsk('How is my day going? Give me a quick, honest check-in.') },
             { icon: 'event_available', label: 'Plan my day', hint: 'Sort routine & tasks', run: () => quickAsk('Help me plan my day based on my routine and tasks.') },
             { icon: 'favorite', label: 'Cheer me up', hint: 'Support for rough days', run: () => quickAsk('I am feeling a bit down today. Cheer me up and give me some support.') },

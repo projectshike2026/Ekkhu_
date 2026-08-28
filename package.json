@@ -1,21 +1,21 @@
- oi{
-  "name": "ekku",
+{
+  "name": "ekkhu",
   "version": "1.0.0",
-  "description": "EKKU - Academic OS. Offline-first desktop app for students (routine, attendance, budget, CGPA, tasks, AI tutor).",
+  "description": "EKKHU - Academic OS. Offline-first desktop app for students (routine, attendance, budget, CGPA, tasks, AI tutor).",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder"
   },
-  "author": "EKKU",
+  "author": "EKKHU",
   "license": "MIT",
   "devDependencies": {
     "electron": "^30.0.0",
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.ekku.academicos",
-    "productName": "EKKU",
+    "appId": "com.ekkhu.academicos",
+    "productName": "EKKHU",
     "files": [
       "main.js",
       "preload.js",

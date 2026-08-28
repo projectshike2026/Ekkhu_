@@ -83,8 +83,13 @@ ACCENT_COLORS = ['#af101a','#6366f1','#10B981','#F59E0B','#0ea5e9','#8b5cf6','#e
 # User Management — invite-code based, unlimited accounts
 # ------------------------------------------------------------------
 DEFAULT_CONFIG = {"invite_code": "EKKU2025", "users": []}
+_CONFIG_CACHE = None
 
-def load_config():
+def load_config(force_reload=False):
+    global _CONFIG_CACHE
+    if _CONFIG_CACHE is not None and not force_reload:
+        return _CONFIG_CACHE
+
     if os.getenv("TURSO_DATABASE_URL"):
         try:
             conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
@@ -92,15 +97,19 @@ def load_config():
             c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
             c.execute("SELECT value FROM global_store WHERE key='users_config'")
             row = c.fetchone()
-            if row: return json.loads(row[0] if isinstance(row, (tuple, list)) else row['value'])
+            if row:
+                _CONFIG_CACHE = json.loads(row[0] if isinstance(row, (tuple, list)) else row['value'])
+                return _CONFIG_CACHE
         except Exception as e:
             print("[TURSO] Failed to load config:", e)
-        return DEFAULT_CONFIG.copy()
+        _CONFIG_CACHE = DEFAULT_CONFIG.copy()
+        return _CONFIG_CACHE
 
     if not os.path.exists(USERS_FILE):
         with open(USERS_FILE, 'w') as f:
             json.dump(DEFAULT_CONFIG, f, indent=2)
-        return DEFAULT_CONFIG.copy()
+        _CONFIG_CACHE = DEFAULT_CONFIG.copy()
+        return _CONFIG_CACHE
     with open(USERS_FILE) as f:
         data = json.load(f)
     # Handle old 5-user format gracefully
@@ -108,12 +117,15 @@ def load_config():
         data['invite_code'] = 'EKKU2025'
     if 'users' not in data:
         data['users'] = []
-    return data
+    _CONFIG_CACHE = data
+    return _CONFIG_CACHE
 
-def load_users():
-    return load_config()['users']
+def load_users(force_reload=False):
+    return load_config(force_reload=force_reload)['users']
 
 def save_config(cfg):
+    global _CONFIG_CACHE
+    _CONFIG_CACHE = cfg
     if os.getenv("TURSO_DATABASE_URL"):
         try:
             conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
@@ -323,6 +335,8 @@ class TursoConnection:
     def commit(self): pass
     def close(self): pass
 
+_initialized_users = set()
+
 def get_db(user_id='A', skip_init=False):
     turso_url = os.getenv("TURSO_DATABASE_URL")
     turso_token = os.getenv("TURSO_AUTH_TOKEN")
@@ -334,13 +348,15 @@ def get_db(user_id='A', skip_init=False):
         conn = sqlite3.connect(db_name)
         
     conn.row_factory = sqlite3.Row
-    if not skip_init:
+    if not skip_init and user_id not in _initialized_users:
         c = conn.cursor()
         try:
             c.execute("SELECT 1 FROM chat_history LIMIT 1")
+            _initialized_users.add(user_id)
         except sqlite3.OperationalError:
             # Tables don't exist, initialize them
             init_db_schema(conn)
+            _initialized_users.add(user_id)
     return conn
 
 def init_db_schema(conn):
@@ -403,25 +419,33 @@ except Exception as _e:
 # ------------------------------------------------------------------
 # Chat helpers
 # ------------------------------------------------------------------
-def save_message(user_id, role, content, emotion=None):
-    conn = get_db(user_id)
+def save_message(user_id, role, content, emotion=None, conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
     c = conn.cursor()
     ts = datetime.now().isoformat()
     c.execute('INSERT INTO chat_history (timestamp, role, content, emotion) VALUES (?, ?, ?, ?)',
               (ts, role, content, emotion))
     conn.commit()
-    conn.close()
+    if close_after:
+        conn.close()
 
-def get_chat_history(user_id, max_messages=50):
-    """Return up to 50 messages from the last 7 days, merging consecutive roles."""
-    conn = get_db(user_id)
+def get_chat_history(user_id, max_messages=20, conn=None):
+    """Return recent messages from the last 7 days, merging consecutive roles."""
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
     c = conn.cursor()
     since = (datetime.now() - timedelta(days=7)).isoformat()
     c.execute('''SELECT timestamp, role, content FROM chat_history
                  WHERE timestamp >= ?
                  ORDER BY id DESC LIMIT ?''', (since, max_messages))
     rows = c.fetchall()
-    conn.close()
+    if close_after:
+        conn.close()
     
     messages = []
     for ts, role, content in reversed(rows):
@@ -434,37 +458,49 @@ def get_chat_history(user_id, max_messages=50):
             
     return messages
 
-def get_long_term_memory(user_id):
-    conn = get_db(user_id)
+def get_long_term_memory(user_id, conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
     c = conn.cursor()
     rows = c.execute(
-        'SELECT timestamp, content, category FROM long_term_memory ORDER BY id DESC LIMIT 30'
+        'SELECT timestamp, content, category FROM long_term_memory ORDER BY id DESC LIMIT 20'
     ).fetchall()
-    conn.close()
+    if close_after:
+        conn.close()
     return [{"timestamp": r[0], "content": r[1], "category": r[2]} for r in rows]
 
-def save_long_term_memory(user_id, content, category='milestone'):
-    conn = get_db(user_id)
+def save_long_term_memory(user_id, content, category='milestone', conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
     c = conn.cursor()
     ts = datetime.now().isoformat()
     c.execute('INSERT INTO long_term_memory (timestamp, content, category) VALUES (?, ?, ?)',
               (ts, content, category))
     conn.commit()
-    conn.close()
+    if close_after:
+        conn.close()
 
 # ------------------------------------------------------------------
 # Session context & gap detection helpers
 # ------------------------------------------------------------------
-def build_session_context(user_id):
+def build_session_context(user_id, conn=None):
     """Build a session summary block: time since last chat + recent mood pattern."""
-    conn = get_db(user_id)
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
     c = conn.cursor()
     rows = c.execute(
         '''SELECT timestamp, emotion FROM chat_history
            WHERE role = 'assistant'
            ORDER BY id DESC LIMIT 10'''
     ).fetchall()
-    conn.close()
+    if close_after:
+        conn.close()
 
     if not rows:
         return ""
@@ -509,14 +545,18 @@ def build_session_context(user_id):
     return summary
 
 
-def is_first_message_after_gap(user_id, gap_hours=4):
+def is_first_message_after_gap(user_id, gap_hours=4, conn=None):
     """Return True if the user's last message was more than gap_hours ago."""
-    conn = get_db(user_id)
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
     c = conn.cursor()
     rows = c.execute(
         'SELECT timestamp FROM chat_history ORDER BY id DESC LIMIT 1'
     ).fetchall()
-    conn.close()
+    if close_after:
+        conn.close()
 
     if not rows:
         return False
@@ -536,14 +576,14 @@ def is_first_message_after_gap(user_id, gap_hours=4):
 # ------------------------------------------------------------------
 # System prompt builder
 # ------------------------------------------------------------------
-def build_system_prompt(user_id):
+def build_system_prompt(user_id, conn=None):
     users = load_users()
     user_info = next((u for u in users if u['id'] == user_id), None)
     user_name = user_info['name'] if user_info else f"User {user_id}"
 
     prompt = get_system_prompt(user_name)
     prompt += f"\n\n=== IDENTITY CLARIFICATION ===\n"
-    prompt += f"CRITICAL: YOU (EKKU) are an AI clone of Arnob. HOWEVER, the user you are currently talking to is: {user_name}. Do NOT confuse your identity with the user's. Address them as {user_name} if needed.\n"
+    prompt += f"CRITICAL: YOU (EKKHU) are an AI clone of Arnob. HOWEVER, the user you are currently talking to is: {user_name}. Do NOT confuse your identity with the user's. Address them as {user_name} if needed.\n"
 
     # Inject instruction_set.txt as few-shot tone/style reference
     try:
@@ -559,10 +599,10 @@ def build_system_prompt(user_id):
         pass
 
     # Get the current user's personal memories
-    ltm = get_long_term_memory(user_id)
+    ltm = get_long_term_memory(user_id, conn=conn)
 
     # ALWAYS fetch Arnob's (u1's) training memories so they apply as global rules for everyone
-    arnob_ltm = get_long_term_memory('u1') if user_id != 'u1' else []
+    arnob_ltm = get_long_term_memory('u1', conn=conn) if user_id != 'u1' else []
 
     if ltm or arnob_ltm:
         prompt += "\n\n=== IMPORTANT LONG-TERM MEMORIES & CORE TRAINING — never forget these ===\n"
@@ -578,7 +618,7 @@ def build_system_prompt(user_id):
             prompt += f"- [{ts}] {m['content']}\n"
 
     # Add session context: time gap + mood pattern
-    prompt += build_session_context(user_id)
+    prompt += build_session_context(user_id, conn=conn)
 
     return prompt
 
@@ -628,29 +668,23 @@ def call_gemini(messages, api_key):
         content = m['content']
         
         if role == 'model':
-            # Reconstruct the expected JSON structure so Gemini doesn't get confused
+            # Simplified mock JSON for context to avoid huge token padding
             mock_json = {
-                "thought_process": {
-                    "current_topic": "Continuing conversation",
-                    "user_sentiment": "neutral",
-                    "strategy": "Answer directly."
-                },
                 "reply": [c.strip() for c in content.split('\n') if c.strip()],
-                "emotion": "neutral",
-                "actions": [],
-                "memory": ""
+                "emotion": "neutral"
             }
             content = json.dumps(mock_json)
             
         gm.append({'role': role, 'parts': [content]})
-    for model_name in ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']:
+    for model_name in ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash']:
         try:
             model = genai.GenerativeModel(model_name, system_instruction=system_part)
             resp = model.generate_content(
                 gm, 
                 generation_config={
                     "response_mime_type": "application/json",
-                    "temperature": 0.7
+                    "temperature": 0.7,
+                    "max_output_tokens": 1500
                 }
             )
             return resp.text
@@ -684,8 +718,11 @@ def call_llm(messages):
 # ------------------------------------------------------------------
 # Context builder
 # ------------------------------------------------------------------
-def get_user_context(user_id):
-    conn = get_db(user_id)
+def get_user_context(user_id, conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
     c = conn.cursor()
     
     from datetime import datetime, timezone, timedelta
@@ -710,7 +747,6 @@ def get_user_context(user_id):
 
     today_routine = c.execute('SELECT * FROM routine WHERE day=? ORDER BY time', (today,)).fetchall()
     att = c.execute('SELECT * FROM attendance').fetchall()
-    conn.close()
 
     ctx = f"=== CURRENT CONTEXT (Bangladesh Time) ===\n"
     ctx += f"Date: {date_str} ({today})\n"
@@ -724,8 +760,6 @@ def get_user_context(user_id):
         ctx += "No classes scheduled for today.\n"
 
     # Query tasks
-    conn = get_db(user_id)
-    c = conn.cursor()
     tasks = c.execute('SELECT * FROM tasks WHERE done=0').fetchall()
     
     ctx += "\nPending Tasks:\n"
@@ -741,7 +775,9 @@ def get_user_context(user_id):
     from datetime import date
     curr_month = date.today().strftime('%Y-%m')
     budget = c.execute('SELECT * FROM budget WHERE date LIKE ?', (f"{curr_month}%",)).fetchall()
-    conn.close()
+    
+    if close_after:
+        conn.close()
     
     ctx += "\nThis Month's Budget & Expenses:\n"
     if budget:
@@ -764,8 +800,6 @@ def get_user_context(user_id):
             course = decrypt_text(a['course'])
             missed = total - present
             ctx += f"- {course}: Missed {missed} classes (Total: {total}, Attended: {present})\n"
-    else:
-        ctx += "No attendance records.\n"
     return ctx
 
 # ------------------------------------------------------------------
@@ -873,9 +907,80 @@ def api_change_invite_code():
 # ------------------------------------------------------------------
 # Routes — Voice Input (Speech to Text)
 # ------------------------------------------------------------------
+def transcribe_audio_bytes(audio_bytes, mime='audio/webm'):
+    """Transcribe Bengali/Banglish speech with Gemini Multimodal Audio (primary) and Groq Whisper (fallback)."""
+    clean_mime = (mime or 'audio/webm').split(';')[0].strip().lower()
+    if 'webm' in clean_mime: clean_mime = 'audio/webm'
+    elif 'mp4' in clean_mime or 'm4a' in clean_mime: clean_mime = 'audio/mp4'
+    elif 'ogg' in clean_mime: clean_mime = 'audio/ogg'
+    elif 'wav' in clean_mime: clean_mime = 'audio/wav'
+    elif 'aac' in clean_mime: clean_mime = 'audio/aac'
+    elif 'mp3' in clean_mime or 'mpeg' in clean_mime: clean_mime = 'audio/mp3'
+
+    # 1. Primary: Gemini Multimodal Audio (superior Bengali & colloquial Banglish accuracy)
+    gemini_keys = [k for k in [GEMINI_API_KEY_1, GEMINI_API_KEY_2] if k]
+    for key in gemini_keys:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=key)
+            prompt = (
+                "You are an ultra-accurate speech-to-text transcription system specialized in Bengali (বাংলা) and Bangladeshi Banglish. "
+                "Transcribe the user's spoken audio into exact text. "
+                "RULES: "
+                "1. Output ONLY the spoken words in natural Bengali script or English (if spoken in English). "
+                "2. Do NOT add quotation marks, commentary, notes, or translations. "
+                "3. Perfectly capture colloquial spoken phrases (e.g. কি করছো তুমি, ঘুমাও না কেনো, কেমন আছো, কি অবস্থা, ভাই, দোস্ত, কাজ, রুটিন, অ্যাসাইনমেন্ট)."
+            )
+            for model_name in ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash']:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    resp = model.generate_content([
+                        prompt,
+                        {'mime_type': clean_mime, 'data': audio_bytes}
+                    ])
+                    text = resp.text.strip() if resp.text else ""
+                    if text.startswith('"') and text.endswith('"'): text = text[1:-1].strip()
+                    if text.startswith("'") and text.endswith("'"): text = text[1:-1].strip()
+                    if text:
+                        try:
+                            print(f"[STT] Gemini ({model_name}) transcribed: {text}")
+                        except Exception:
+                            print(f"[STT] Gemini ({model_name}) transcribed: [Non-ASCII text len={len(text)}]")
+                        return text
+                except Exception as me:
+                    print(f"[STT] Gemini {model_name} failed: {type(me).__name__} - {me}")
+        except Exception as ke:
+            print(f"[STT] Gemini key failed: {type(ke).__name__} - {ke}")
+
+    # 2. Fallback: Groq Whisper
+    if GROQ_API_KEY:
+        try:
+            ext_map = {'audio/webm': '.webm', 'audio/mp4': '.m4a', 'audio/ogg': '.ogg', 'audio/wav': '.wav', 'audio/aac': '.aac', 'audio/mp3': '.mp3'}
+            ext = ext_map.get(clean_mime, '.webm')
+            whisper_prompt = "বাংলা ও English (Banglish) কথোপকথন: কি করছো তুমি, ঘুমাও না কেনো, কেমন আছিস, কি অবস্থা, ভাই, দোস্ত, ঠিক আছে।"
+            resp = requests.post(
+                'https://api.groq.com/openai/v1/audio/transcriptions',
+                headers={'Authorization': f'Bearer {GROQ_API_KEY}'},
+                files={'file': (f'audio{ext}', audio_bytes, clean_mime)},
+                data={'model': 'whisper-large-v3-turbo', 'prompt': whisper_prompt, 'temperature': 0.0},
+                timeout=12
+            )
+            if resp.status_code == 200:
+                text = resp.json().get('text', '').strip()
+                if text:
+                    try:
+                        print(f"[STT] Groq Whisper transcribed: {text}")
+                    except Exception:
+                        print(f"[STT] Groq Whisper transcribed: [Non-ASCII text len={len(text)}]")
+                    return text
+        except Exception as we:
+            print(f"[STT] Groq Whisper fallback failed: {type(we).__name__} - {we}")
+
+    return None
+
 @app.route('/voice', methods=['POST'])
 def voice_input():
-    """Accept audio file and return transcribed text using Groq Whisper."""
+    """Accept audio file and return transcribed text using Gemini Multimodal Audio."""
     if 'audio' not in request.files:
         return jsonify({"error": "No audio file provided"}), 400
     
@@ -884,52 +989,21 @@ def voice_input():
         return jsonify({"error": "No audio file selected"}), 400
     
     try:
-        import tempfile, os as _os
-        
-        # Determine file extension from mimetype
         mime = audio_file.mimetype or 'audio/webm'
-        ext_map = {
-            'audio/webm': '.webm', 'audio/ogg': '.ogg',
-            'audio/mp4': '.m4a', 'audio/mpeg': '.mp3',
-            'audio/wav': '.wav', 'audio/x-wav': '.wav',
-        }
-        ext = ext_map.get(mime, '.webm')
+        audio_bytes = audio_file.read()
         
-        # Save to temp file (Groq API needs a file-like object with a name)
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-        audio_file.save(tmp)
-        tmp.close()
+        # Guard against zero-byte / corrupt mic recordings
+        if not audio_bytes or len(audio_bytes) < 300:
+            return jsonify({"error": "Audio recording was too short or empty"}), 400
         
-        try:
-            # Use Groq Whisper API
-            if not GROQ_API_KEY:
-                raise Exception("GROQ_API_KEY not set")
+        text = transcribe_audio_bytes(audio_bytes, mime)
+        if not text:
+            return jsonify({"error": "Could not understand audio"}), 400
             
-            with open(tmp.name, 'rb') as f:
-                resp = requests.post(
-                    'https://api.groq.com/openai/v1/audio/transcriptions',
-                    headers={'Authorization': f'Bearer {GROQ_API_KEY}'},
-                    files={'file': (f'audio{ext}', f, mime)},
-                    data={
-                        'model': 'whisper-large-v3', 
-                        'language': 'bn',
-                        'prompt': 'বাংলা ও English এর মিশ্রণ। উদাহরণ: সম্ভবত, হইছে, করছি, করা, bug fix, implement, ভাই, আচ্ছা।'
-                    },
-                    timeout=15
-                )
-            
-            if resp.status_code == 200:
-                text = resp.json().get('text', '').strip()
-                if not text:
-                    return jsonify({"error": "Could not understand audio"}), 400
-                return jsonify({"text": text})
-            else:
-                print(f"[Whisper] Groq API error {resp.status_code}: {resp.text}")
-                return jsonify({"error": f"Transcription failed ({resp.status_code})"}), 500
-        finally:
-            _os.unlink(tmp.name)
+        return jsonify({"text": text})
             
     except Exception as e:
+        import traceback; traceback.print_exc()
         print("Voice input error:", e)
         return jsonify({"error": str(e)}), 500
 
@@ -1180,42 +1254,60 @@ def tts_debug():
 # ------------------------------------------------------------------
 @app.route('/chat', methods=['POST'])
 def chat():
-    try:
-        user_id = get_current_user_id()
-        data = request.json or {}
-        if not data.get('message', '').strip():
-            return jsonify({"error": "No message provided"}), 400
-        user_text = data['message'].strip()
+    user_id = get_current_user_id()
+    data = request.json or {}
+    if not data.get('message', '').strip():
+        return jsonify({"error": "No message provided"}), 400
+    user_text = data['message'].strip()
+
+    # Fast crisis check before database
+    if is_crisis(user_text):
         save_message(user_id, 'user', user_text)
+        save_message(user_id, 'assistant', CRISIS_MESSAGE['reply'], CRISIS_MESSAGE['emotion'])
+        return jsonify(CRISIS_MESSAGE)
 
-        if is_crisis(user_text):
-            save_message(user_id, 'assistant', CRISIS_MESSAGE['reply'], CRISIS_MESSAGE['emotion'])
-            return jsonify(CRISIS_MESSAGE)
+    # 1. Single DB connection for entire context preparation
+    try:
+        read_conn = get_db(user_id)
+        save_message(user_id, 'user', user_text, conn=read_conn)
+        history = get_chat_history(user_id, max_messages=20, conn=read_conn)
+        is_gap = is_first_message_after_gap(user_id, gap_hours=4, conn=read_conn)
+        user_ctx = get_user_context(user_id, conn=read_conn)
+        sys_prompt = build_system_prompt(user_id, conn=read_conn)
+        read_conn.close()
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        # Fallback if DB reads fail
+        history = []
+        is_gap = False
+        user_ctx = ""
+        sys_prompt = build_system_prompt(user_id)
 
-        history = get_chat_history(user_id)
+    gap_note = ""
+    if is_gap:
+        gap_note = (
+            "\n\n[SYSTEM NOTE: This is the user's FIRST message after a significant time gap. "
+            "Do NOT continue the previous conversation topic. "
+            "Greet them fresh and naturally like a real friend coming back after time away. "
+            "If they said something simple like 'hi', respond warmly and naturally — "
+            "acknowledge the gap casually if it's been a day or more. Keep it real, not robotic.]"
+        )
 
-        gap_note = ""
-        if is_first_message_after_gap(user_id, gap_hours=4):
-            gap_note = (
-                "\n\n[SYSTEM NOTE: This is the user's FIRST message after a significant time gap. "
-                "Do NOT continue the previous conversation topic. "
-                "Greet them fresh and naturally like a real friend coming back after time away. "
-                "If they said something simple like 'hi', respond warmly and naturally — "
-                "acknowledge the gap casually if it's been a day or more. Keep it real, not robotic.]"
-            )
+    full_system_prompt = sys_prompt + gap_note + "\n\n" + user_ctx
+    messages = [{"role": "system", "content": full_system_prompt}] + history
 
-        full_system_prompt = build_system_prompt(user_id) + gap_note + "\n\n" + get_user_context(user_id)
-        messages = [{"role": "system", "content": full_system_prompt}] + history
-
+    # 2. Call LLM
+    try:
         response_text = call_llm(messages)
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({
-            "reply": "Sorry, I can't connect right now. Try again in a moment.",
+            "reply": ["Sorry, I can't connect right now. Try again in a moment."],
             "emotion": "neutral",
             "debug_error": f"Top level chat error: {type(e).__name__} - {str(e)}"
         }), 500
 
+    # 3. Parse JSON response and execute actions in a single write connection
     try:
         cleaned_text = response_text.strip()
         if cleaned_text.startswith('```json'):
@@ -1231,12 +1323,11 @@ def chat():
         if isinstance(reply_data, str):
             reply_data = [reply_data]
             
-        # Clean SSML tags from the visual reply just in case LLM put them there
+        # Clean SSML tags from visual reply
         cleaned_reply_data = []
         for r in reply_data:
             if isinstance(r, str):
                 r_clean = re.sub(r'</?(break|emphasis|speak)[^>]*>', '', r).strip()
-                # Also clean up extra spaces left by stripped tags
                 r_clean = re.sub(r' +', ' ', r_clean)
                 cleaned_reply_data.append(r_clean)
             else:
@@ -1250,19 +1341,19 @@ def chat():
         if isinstance(tts_text, str):
             tts_text = re.sub(r'</?[a-zA-Z]+[^>]*>', '', tts_text).strip()
 
-        # Save each message piece to the database
-        for msg in reply_data:
-            if msg.strip():
-                save_message(user_id, 'assistant', msg.strip(), emotion)
+        # Single DB write session for saving response, memory, and actions
+        write_conn = get_db(user_id)
+        c = write_conn.cursor()
 
-        # Persist long-term memory if LLM flagged a milestone
+        for msg in reply_data:
+            if str(msg).strip():
+                save_message(user_id, 'assistant', str(msg).strip(), emotion, conn=write_conn)
+
         if memory_content and isinstance(memory_content, str) and memory_content.strip():
-            save_long_term_memory(user_id, memory_content.strip())
+            save_long_term_memory(user_id, memory_content.strip(), conn=write_conn)
             print(f"[MEMORY] Saved for user {user_id}: {memory_content.strip()}")
 
         if actions:
-            conn = get_db(user_id)
-            c = conn.cursor()
             for action in actions:
                 atype = action.get("type")
                 if atype == "mark_absent":
@@ -1280,7 +1371,7 @@ def chat():
                                encrypt_text(action.get('course','')), encrypt_text(''), encrypt_text(''), '#af101a'))
                 elif atype == "add_task":
                     c.execute('INSERT INTO tasks (title, note, done, date, priority) VALUES (?,?,0,?,?)',
-                              (encrypt_text(action.get('title','')), encrypt_text('Added by EKKU'),
+                              (encrypt_text(action.get('title','')), encrypt_text('Added by EKKHU'),
                                date.today().isoformat(), 'medium'))
                 elif atype == "add_budget":
                     try:
@@ -1296,8 +1387,9 @@ def chat():
                     c.execute('INSERT INTO plans (day, duration, title, status) VALUES (?,?,?,?)',
                               (encrypt_text(action.get('day','')), encrypt_text(action.get('duration','')),
                                encrypt_text(action.get('title','')), encrypt_text('pending')))
-            conn.commit()
-            conn.close()
+            write_conn.commit()
+        write_conn.close()
+
     except Exception as e:
         import traceback; traceback.print_exc()
         print(f"Action execution error or JSON Parse error: {e}")
