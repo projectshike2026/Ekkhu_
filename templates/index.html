@@ -167,257 +167,363 @@
   .pb-safe{padding-bottom:env(safe-area-inset-bottom,0px)}
 
   /* ══════════════════════════════════════════════════════
-     3D EVA ROBOT PERSONA (EKKHU SENTIENT AVATAR)
+     EKKHU SENTIENT NEURAL CORE — PROPRIETARY AI AVATAR
   ══════════════════════════════════════════════════════ */
-  .modelViewPort {
-    perspective: 1000px;
-    width: 14rem;
-    height: 14rem;
-    aspect-ratio: 1;
-    border-radius: 50%;
+  .ekkhu-neural-container {
+    position: relative;
+    width: 15rem;
+    height: 15rem;
     display: flex;
     justify-content: center;
     align-items: center;
-    background: radial-gradient(circle, #08111e 0%, #02060c 80%, #000 100%);
-    box-shadow: 0 0 45px rgba(6, 182, 212, 0.28), inset 0 0 30px rgba(0,0,0,0.9);
-    border: 2px solid rgba(6, 182, 212, 0.35);
-    overflow: hidden;
+    perspective: 1200px;
     cursor: pointer;
-    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-    position: relative;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .modelViewPort:hover {
-    box-shadow: 0 0 65px rgba(6, 182, 212, 0.55), inset 0 0 25px rgba(6, 182, 212, 0.25);
-    border-color: rgba(6, 182, 212, 0.7);
-    transform: scale(1.03);
+  .ekkhu-neural-container:hover {
+    transform: scale(1.05);
   }
-  .modelViewPort:active {
-    transform: scale(0.97);
+  .ekkhu-neural-container:active {
+    transform: scale(0.96);
   }
-  .modelViewPort-mini {
-    width: 7.5rem !important;
-    height: 7.5rem !important;
-    box-shadow: 0 0 25px rgba(6, 182, 212, 0.25) !important;
+
+  .ekkhu-neural-mini {
+    width: 6.5rem !important;
+    height: 6.5rem !important;
   }
-  .modelViewPort-mini .eva {
-    transform: scale(0.52);
+  .ekkhu-neural-mini .ekkhu-core-orb {
+    width: 5.5rem !important;
+    height: 5.5rem !important;
   }
-  .eva {
-    --EVA-ROTATION-DURATION: 4s;
-    transform-style: preserve-3d;
-    animation: rotateRight var(--EVA-ROTATION-DURATION) linear infinite alternate;
-    transition: transform 0.5s ease;
+  .ekkhu-neural-mini .ekkhu-eye-matrix {
+    gap: 10px !important;
   }
-  .head {
-    position: relative;
-    width: 6rem;
-    height: 4rem;
-    border-radius: 48% 53% 45% 55% / 79% 79% 20% 22%;
-    background: linear-gradient(to right, #ffffff 45%, #94a3b8);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  .ekkhu-neural-mini .ekkhu-eye {
+    width: 10px !important;
+    height: 16px !important;
+    border-radius: 6px !important;
   }
-  .eyeChamber {
-    width: 4.5rem;
-    height: 2.75rem;
-    position: relative;
-    left: 50%;
-    top: 55%;
-    border-radius: 45% 53% 45% 48% / 62% 59% 35% 34%;
-    background-color: #0c203c;
-    box-shadow: 0px 0px 2px 2px white, inset 0px 0px 0px 2px black;
-    transform: translate(-50%, -50%);
-    animation: moveRight var(--EVA-ROTATION-DURATION) linear infinite alternate;
+  .ekkhu-neural-mini .quantum-orbit,
+  .ekkhu-neural-mini .ekkhu-spectrum {
+    display: none !important;
   }
-  .eye {
-    width: 1.2rem;
-    height: 1.5rem;
+
+  /* Outer Ambient Glow Aura */
+  .ekkhu-aura {
     position: absolute;
+    inset: -15%;
     border-radius: 50%;
-    transition: all 0.3s ease;
-  }
-  .eye:first-child {
-    left: 12px;
-    top: 50%;
-    background: repeating-linear-gradient(65deg, #9bdaeb 0px, #9bdaeb 1px, white 2px);
-    box-shadow: inset 0px 0px 5px #04b8d5, 0px 0px 15px 2px #0bdaeb;
-    transform: translate(0, -50%) rotate(-65deg);
-  }
-  .eye:nth-child(2) {
-    right: 12px;
-    top: 50%;
-    background: repeating-linear-gradient(-65deg, #9bdaeb 0px, #9bdaeb 1px, white 2px);
-    box-shadow: inset 0px 0px 5px #04b8d5, 0px 0px 15px 2px #0bdaeb;
-    transform: translate(0, -50%) rotate(65deg);
-  }
-  .body {
-    width: 6rem;
-    height: 8rem;
-    position: relative;
-    margin-block-start: 0.25rem;
-    border-radius: 47% 53% 45% 55% / 12% 9% 90% 88%;
-    background: linear-gradient(to right, #ffffff 35%, #94a3b8);
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-  }
-  .hand {
-    position: absolute;
-    left: -1.5rem;
-    top: 0.75rem;
-    width: 2rem;
-    height: 5.5rem;
-    border-radius: 40%;
-    background: linear-gradient(to left, #ffffff 15%, #94a3b8);
-    box-shadow: 5px 0px 5px rgba(0, 0, 0, 0.25);
-    transform: rotateY(55deg) rotateZ(10deg);
-  }
-  .hand:first-child {
-    animation: compensateRotation var(--EVA-ROTATION-DURATION) linear infinite alternate;
-  }
-  .hand:nth-child(2) {
-    left: 92%;
-    background: linear-gradient(to right, #ffffff 15%, #94a3b8);
-    transform: rotateY(55deg) rotateZ(-10deg);
-    animation: compensateRotationRight var(--EVA-ROTATION-DURATION) linear infinite alternate;
-  }
-  .scannerThing {
-    width: 0;
-    height: 0;
-    position: absolute;
-    left: 60%;
-    top: 10%;
-    border-top: 180px solid #9bdaeb;
-    border-left: 250px solid transparent;
-    border-right: 250px solid transparent;
-    transform-origin: top left;
-    mask: linear-gradient(to right, white, transparent 35%);
-    animation: glow 2s cubic-bezier(0.86, 0, 0.07, 1) infinite;
+    background: radial-gradient(circle, rgba(6, 182, 212, 0.32) 0%, rgba(225, 29, 72, 0.2) 50%, transparent 70%);
+    filter: blur(28px);
+    animation: auraBreath 4s ease-in-out infinite alternate;
     pointer-events: none;
+    transition: all 0.5s ease;
+  }
+
+  /* 3D Gyroscopic Quantum Orbit Rings */
+  .quantum-orbit {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 1.5px solid transparent;
+    pointer-events: none;
+    transform-style: preserve-3d;
+  }
+  .orbit-cyan {
+    border-top: 2px solid #38bdf8;
+    border-bottom: 2px solid #06b6d4;
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.7);
+    animation: orbitRotate1 7s linear infinite;
+  }
+  .orbit-rose {
+    width: 114%;
+    height: 114%;
+    border-left: 2px solid #f43f5e;
+    border-right: 2px solid #e11d48;
+    box-shadow: 0 0 18px rgba(244, 63, 94, 0.7);
+    animation: orbitRotate2 9s linear infinite reverse;
+  }
+
+  /* The Luminous Glass Orb */
+  .ekkhu-core-orb {
+    position: relative;
+    width: 11.5rem;
+    height: 11.5rem;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #1e1b4b 0%, #090d16 55%, #02060c 100%);
+    box-shadow: 
+      inset 0 0 35px rgba(6, 182, 212, 0.35),
+      inset -10px -10px 40px rgba(0, 0, 0, 0.9),
+      0 10px 40px rgba(0, 0, 0, 0.6),
+      0 0 45px rgba(6, 182, 212, 0.25);
+    border: 1.5px solid rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(20px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Inner Cosmic Energy Fluid */
+  .ekkhu-core-orb::before {
+    content: "";
+    position: absolute;
+    inset: -25%;
+    border-radius: 40%;
+    background: linear-gradient(45deg, rgba(225, 29, 72, 0.4), rgba(6, 182, 212, 0.45), rgba(139, 92, 246, 0.4));
+    animation: fluidMorph 8s ease-in-out infinite alternate;
+    filter: blur(22px);
+    opacity: 0.7;
+  }
+
+  /* Glass Specular Highlight */
+  .ekkhu-core-orb::after {
+    content: "";
+    position: absolute;
+    top: 6%;
+    left: 14%;
+    width: 45%;
+    height: 25%;
+    border-radius: 50%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 100%);
+    transform: rotate(-25deg);
+    pointer-events: none;
+  }
+
+  /* The Sentient Eye Matrix */
+  .ekkhu-eye-matrix {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    transition: transform 0.3s ease;
+  }
+
+  .ekkhu-eye {
+    width: 20px;
+    height: 30px;
+    border-radius: 10px;
+    background: #38bdf8;
+    box-shadow: 
+      0 0 16px #38bdf8,
+      0 0 32px rgba(6, 182, 212, 0.85),
+      inset 0 0 6px #ffffff;
+    position: relative;
+    transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    animation: eyeBlink 5s infinite;
+  }
+  .ekkhu-eye::after {
+    content: "";
+    position: absolute;
+    top: 15%;
+    left: 20%;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 0 4px #ffffff;
+  }
+
+  /* Reactive Voice Equalizer Spectrum */
+  .ekkhu-spectrum {
+    position: absolute;
+    bottom: 15%;
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 16px;
+    z-index: 6;
     opacity: 0;
     transition: opacity 0.4s ease;
   }
-  .scannerOrigin {
-    position: absolute;
-    width: 8px;
-    aspect-ratio: 1;
-    border-radius: 50%;
-    left: 60%;
-    top: 10%;
-    background: #9bdaeb;
-    box-shadow: inset 0px 0px 5px rgba(0, 0, 0, 0.5), 0 0 10px #0bdaeb;
-    animation: moveRight var(--EVA-ROTATION-DURATION) linear infinite;
+  .spectrum-bar {
+    width: 3px;
+    height: 4px;
+    border-radius: 3px;
+    background: linear-gradient(to top, #38bdf8, #f43f5e);
+    box-shadow: 0 0 6px #38bdf8;
   }
 
-  /* Dynamic Voice States for Eva Robot */
-  .state-listening .scannerThing {
+  /* ── States ─────────────────────────────── */
+
+  /* 1. LISTENING State */
+  .state-listening .ekkhu-aura {
+    background: radial-gradient(circle, rgba(6, 182, 212, 0.65) 0%, rgba(56, 189, 248, 0.35) 50%, transparent 70%);
+    filter: blur(36px);
+    animation: auraListening 1.2s infinite alternate;
+  }
+  .state-listening .ekkhu-core-orb {
+    box-shadow: 
+      inset 0 0 45px rgba(6, 182, 212, 0.6),
+      0 0 65px rgba(6, 182, 212, 0.7),
+      0 0 110px rgba(6, 182, 212, 0.35);
+    border-color: rgba(56, 189, 248, 0.8);
+    transform: scale(1.05);
+  }
+  .state-listening .orbit-cyan {
+    animation: orbitRotate1 2.2s linear infinite;
+    box-shadow: 0 0 28px #38bdf8;
+  }
+  .state-listening .orbit-rose {
+    animation: orbitRotate2 3s linear infinite reverse;
+  }
+  .state-listening .ekkhu-eye {
+    height: 36px;
+    border-radius: 12px;
+    box-shadow: 0 0 24px #38bdf8, 0 0 50px rgba(6, 182, 212, 1), inset 0 0 8px #ffffff;
+  }
+  .state-listening .ekkhu-spectrum {
     opacity: 1;
   }
-  .state-listening .modelViewPort {
-    border-color: #06b6d4 !important;
-    box-shadow: 0 0 65px rgba(6, 182, 212, 0.6), inset 0 0 35px rgba(6, 182, 212, 0.35) !important;
-    animation: pulseRing 1.8s infinite;
+  .state-listening .spectrum-bar:nth-child(1) { animation: specWave 0.8s ease-in-out infinite 0.1s; }
+  .state-listening .spectrum-bar:nth-child(2) { animation: specWave 0.8s ease-in-out infinite 0.3s; }
+  .state-listening .spectrum-bar:nth-child(3) { animation: specWave 0.8s ease-in-out infinite 0.5s; }
+  .state-listening .spectrum-bar:nth-child(4) { animation: specWave 0.8s ease-in-out infinite 0.2s; }
+  .state-listening .spectrum-bar:nth-child(5) { animation: specWave 0.8s ease-in-out infinite 0.4s; }
+
+  /* 2. THINKING State */
+  .state-thinking .ekkhu-core-orb::before {
+    animation: fluidMorph 1.8s linear infinite;
+    opacity: 0.95;
+    filter: blur(14px);
   }
-  .state-speaking .eye {
-    box-shadow: inset 0px 0px 8px #04b8d5, 0px 0px 24px 5px #0bdaeb !important;
-    animation: eyeGlowPulse 0.9s ease-in-out infinite alternate;
+  .state-thinking .ekkhu-eye {
+    height: 6px;
+    border-radius: 4px;
+    background: #f43f5e;
+    box-shadow: 0 0 20px #f43f5e, 0 0 40px rgba(244, 63, 94, 0.85);
+    animation: thinkingPulse 0.9s ease-in-out infinite alternate;
   }
-  .state-speaking .modelViewPort {
-    border-color: #f43f5e !important;
-    box-shadow: 0 0 65px rgba(244, 63, 94, 0.5), inset 0 0 30px rgba(244, 63, 94, 0.3) !important;
+  .state-thinking .orbit-cyan {
+    animation: orbitRotate1 1.8s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
   }
-  .state-thinking .eyeChamber {
-    animation: moveRight 1.2s linear infinite alternate, chamberPulse 1.2s ease-in-out infinite alternate !important;
+  .state-thinking .orbit-rose {
+    animation: orbitRotate2 1.8s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite reverse;
   }
 
-  @keyframes pulseRing {
-    0% { transform: scale(1); box-shadow: 0 0 40px rgba(6, 182, 212, 0.4); }
-    50% { transform: scale(1.04); box-shadow: 0 0 75px rgba(6, 182, 212, 0.75); }
-    100% { transform: scale(1); box-shadow: 0 0 40px rgba(6, 182, 212, 0.4); }
+  /* 3. SPEAKING State */
+  .state-speaking .ekkhu-aura {
+    background: radial-gradient(circle, rgba(244, 63, 94, 0.55) 0%, rgba(6, 182, 212, 0.35) 50%, transparent 70%);
+    animation: auraSpeaking 0.6s ease-in-out infinite alternate;
   }
-  @keyframes eyeGlowPulse {
-    from { filter: brightness(1); }
-    to { filter: brightness(1.5); }
+  .state-speaking .ekkhu-core-orb {
+    box-shadow: 
+      inset 0 0 45px rgba(244, 63, 94, 0.5),
+      0 0 70px rgba(244, 63, 94, 0.6),
+      0 0 120px rgba(225, 29, 72, 0.4);
+    border-color: rgba(244, 63, 94, 0.7);
+    animation: coreSpeakingPulse 0.8s ease-in-out infinite alternate;
   }
-  @keyframes chamberPulse {
-    from { box-shadow: 0px 0px 2px 2px white, inset 0px 0px 0px 2px black; }
-    to { box-shadow: 0px 0px 10px 4px #06b6d4, inset 0px 0px 0px 2px black; }
+  .state-speaking .ekkhu-eye {
+    background: #ffffff;
+    box-shadow: 0 0 22px #ffffff, 0 0 45px #f43f5e, inset 0 0 8px #f43f5e;
+    animation: eyeTalking 0.4s ease-in-out infinite alternate;
   }
-  @keyframes rotateRight { from { transform: rotateY(0deg); } to { transform: rotateY(25deg); } }
-  @keyframes moveRight { from { transform: translate(-50%, -50%); } to { transform: translate(-40%, -50%); } }
-  @keyframes compensateRotation { from { transform: rotateY(55deg) rotateZ(10deg); } to { transform: rotatey(30deg) rotateZ(10deg); } }
-  @keyframes compensateRotationRight { from { transform: rotateY(55deg) rotateZ(-10deg); } to { transform: rotateY(70deg) rotateZ(-10deg); } }
-  @keyframes glow { 0% { opacity: 0; } 20% { opacity: 1; } 45% { transform: rotate(-25deg); } 75% { transform: rotate(5deg); } 100% { opacity: 0; } }
+  .state-speaking .ekkhu-spectrum {
+    opacity: 1;
+  }
+  .state-speaking .spectrum-bar:nth-child(1) { animation: specWave 0.4s ease-in-out infinite 0.05s; }
+  .state-speaking .spectrum-bar:nth-child(2) { animation: specWave 0.4s ease-in-out infinite 0.15s; }
+  .state-speaking .spectrum-bar:nth-child(3) { animation: specWave 0.4s ease-in-out infinite 0.25s; }
+  .state-speaking .spectrum-bar:nth-child(4) { animation: specWave 0.4s ease-in-out infinite 0.10s; }
+  .state-speaking .spectrum-bar:nth-child(5) { animation: specWave 0.4s ease-in-out infinite 0.20s; }
+
+  /* ── Keyframes ───────────────────────────── */
+  @keyframes auraBreath {
+    0% { transform: scale(0.94); opacity: 0.6; }
+    100% { transform: scale(1.12); opacity: 0.95; }
+  }
+  @keyframes auraListening {
+    0% { transform: scale(1); opacity: 0.7; }
+    100% { transform: scale(1.3); opacity: 1; }
+  }
+  @keyframes auraSpeaking {
+    0% { transform: scale(1.05); opacity: 0.8; }
+    100% { transform: scale(1.3); opacity: 1; }
+  }
+  @keyframes orbitRotate1 {
+    from { transform: rotateX(65deg) rotateY(20deg) rotateZ(0deg); }
+    to { transform: rotateX(65deg) rotateY(20deg) rotateZ(360deg); }
+  }
+  @keyframes orbitRotate2 {
+    from { transform: rotateX(-65deg) rotateY(-30deg) rotateZ(0deg); }
+    to { transform: rotateX(-65deg) rotateY(-30deg) rotateZ(360deg); }
+  }
+  @keyframes fluidMorph {
+    0% { transform: rotate(0deg) scale(1); }
+    50% { transform: rotate(180deg) scale(1.35); }
+    100% { transform: rotate(360deg) scale(1); }
+  }
+  @keyframes eyeBlink {
+    0%, 90%, 94%, 98%, 100% { transform: scaleY(1); }
+    92%, 96% { transform: scaleY(0.08); }
+  }
+  @keyframes thinkingPulse {
+    0% { transform: scaleX(0.75); opacity: 0.6; }
+    100% { transform: scaleX(1.25); opacity: 1; }
+  }
+  @keyframes eyeTalking {
+    0% { transform: scaleY(0.85); }
+    100% { transform: scaleY(1.18); }
+  }
+  @keyframes coreSpeakingPulse {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.035); }
+  }
+  @keyframes specWave {
+    0%, 100% { height: 4px; }
+    50% { height: 16px; }
+  }
 
   /* ══════════════════════════════════════════════════════
-     ANIMATED SENTIENT BLINKING EYES (.sentient-eyes)
+     ANIMATED SENTIENT EYE BADGE (.sentient-badge)
   ══════════════════════════════════════════════════════ */
-  .sentient-eyes {
+  .sentient-badge {
     position: relative;
-    width: 32px;
-    height: 16px;
     display: inline-flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 9999px;
+    background: rgba(6, 182, 212, 0.08);
+    border: 1px solid rgba(6, 182, 212, 0.25);
   }
-  .sentient-eyes::after,
-  .sentient-eyes::before {
-    content: "";
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    background-color: #0f172a;
-    background-image: radial-gradient(circle 4px, #38bdf8 100%, transparent 0);
-    background-repeat: no-repeat;
-    border-radius: 50%;
-    box-shadow: 0 0 6px rgba(56, 189, 248, 0.7);
-    animation: eyeMove 8s infinite ease-in-out, blink 6s infinite ease-in-out;
-  }
-  @keyframes eyeMove {
-    0%, 10% { background-position: 0px 0px; }
-    13%, 40% { background-position: -4px 0px; }
-    43%, 70% { background-position: 4px 0px; }
-    73%, 90% { background-position: 0px 4px; }
-    93%, 100% { background-position: 0px 0px; }
-  }
-  @keyframes blink {
-    0%, 10%, 12%, 20%, 22%, 40%, 42%, 60%, 62%, 70%, 72%, 90%, 92%, 98%, 100% { height: 14px; }
-    11%, 21%, 41%, 61%, 71%, 91%, 99% { height: 3px; }
+  .sentient-badge .sentient-eye {
+    width: 6px;
+    height: 10px;
+    border-radius: 3px;
+    background: #38bdf8;
+    box-shadow: 0 0 6px #38bdf8;
+    animation: eyeBlink 5s infinite;
   }
 
   /* ══════════════════════════════════════════════════════
-     LIQUID WAVE CIRCULAR LOADER (.wave-loader)
+     CYBER LUXE GLASS THEMING & MICRO-INTERACTIONS
   ══════════════════════════════════════════════════════ */
-  .wave-loader {
-    width: 100px;
-    height: 100px;
-    border-radius: 50%;
-    position: relative;
-    box-shadow: 0 0 25px 4px rgba(6, 182, 212, 0.4) inset, 0 5px 15px rgba(0, 0, 0, 0.3);
-    overflow: hidden;
-    background: #090e17;
+  .cyber-pill {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(241, 245, 249, 0.8) 100%);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
   }
-  .wave-loader:before,
-  .wave-loader:after {
-    content: "";
-    position: absolute;
-    width: 140%;
-    height: 140%;
-    border-radius: 45%;
-    top: -45%;
-    left: -20%;
-    background-color: #e11d48;
-    animation: waveRotate 4s linear infinite;
-    opacity: 0.85;
+  .cyber-glow-btn {
+    background: linear-gradient(135deg, #e11d48 0%, #f43f5e 50%, #fb7185 100%);
+    box-shadow: 0 8px 25px rgba(225, 29, 72, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .wave-loader:before {
-    border-radius: 35%;
-    background: #06b6d4;
-    animation: waveRotate 6s linear infinite;
-    opacity: 0.6;
+  .cyber-glow-btn:hover {
+    box-shadow: 0 12px 35px rgba(225, 29, 72, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+    transform: translateY(-2px);
   }
-  @keyframes waveRotate {
-    0% { transform: rotate(0); }
-    100% { transform: rotate(360deg); }
+  .cyber-glow-btn:active {
+    transform: scale(0.97);
   }
 </style>
 </head>
@@ -921,41 +1027,41 @@
 
         <!-- VOICE MODE VIEW (Mobile) -->
         <div id="mob-voice-view" class="hidden flex-1 flex flex-col items-center justify-center bg-gradient-to-b from-surface-container-lowest via-surface-container-low to-primary-fixed/10 animate-fade-in relative min-h-0 overflow-hidden px-4">
-          <!-- Background glow -->
-          <div class="absolute inset-0 bg-gradient-to-b from-cyan-500/5 via-primary/5 to-transparent pointer-events-none"></div>
-          
-          <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-300" id="mob-voice-waves">
-            <div class="relative w-72 h-72 flex items-center justify-center">
-              <div class="absolute inset-0 rounded-full border border-cyan-400/40 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
-              <div class="absolute inset-8 rounded-full border border-primary/30 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 0.4s"></div>
-              <div class="absolute inset-16 rounded-full border border-cyan-300/20 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 0.8s"></div>
+          <!-- Background acoustic wave aura -->
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-500" id="mob-voice-waves">
+            <div class="relative w-80 h-80 flex items-center justify-center">
+              <div class="absolute inset-0 rounded-full border border-cyan-400/30 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
+              <div class="absolute inset-10 rounded-full border border-rose-500/25 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 0.5s"></div>
+              <div class="absolute inset-20 rounded-full border border-cyan-300/20 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 1s"></div>
             </div>
           </div>
           
           <div class="relative z-10 flex flex-col items-center justify-center w-full max-w-sm">
-            <!-- Interactive 3D Eva Robot Avatar -->
-            <div id="mob-eva-robot" class="modelViewPort mb-6" onclick="startVoiceInteraction()">
-              <div class="eva">
-                <div class="head">
-                  <div class="eyeChamber">
-                    <div class="eye"></div>
-                    <div class="eye"></div>
-                  </div>
+            <!-- Ekkhu Sentient Neural Core Avatar (Mobile) -->
+            <div id="mob-neural-avatar" class="ekkhu-neural-container mb-8" onclick="startVoiceInteraction()">
+              <div class="ekkhu-aura"></div>
+              <div class="quantum-orbit orbit-cyan"></div>
+              <div class="quantum-orbit orbit-rose"></div>
+              <div class="ekkhu-core-orb">
+                <div class="ekkhu-eye-matrix">
+                  <div class="ekkhu-eye"></div>
+                  <div class="ekkhu-eye"></div>
                 </div>
-                <div class="body">
-                  <div class="hand"></div>
-                  <div class="hand"></div>
-                  <div class="scannerThing"></div>
-                  <div class="scannerOrigin"></div>
+                <div class="ekkhu-spectrum">
+                  <div class="spectrum-bar"></div>
+                  <div class="spectrum-bar"></div>
+                  <div class="spectrum-bar"></div>
+                  <div class="spectrum-bar"></div>
+                  <div class="spectrum-bar"></div>
                 </div>
               </div>
             </div>
 
             <!-- Status & Interactive Control Pill -->
-            <h3 id="mob-voice-status" class="text-2xl font-bold text-on-surface mb-1 tracking-tight text-center">Tap to speak</h3>
-            <p id="mob-voice-subtitle" class="text-xs text-on-surface-variant text-center mb-5 max-w-xs">Ekkhu is listening &bull; AI Voice Assistant 🎤</p>
+            <h3 id="mob-voice-status" class="text-2xl font-bold text-on-surface mb-1.5 tracking-tight text-center">Tap to speak</h3>
+            <p id="mob-voice-subtitle" class="text-xs text-on-surface-variant text-center mb-6 max-w-xs font-medium">Neural Voice Intelligence &bull; Bangla &amp; English</p>
 
-            <button id="mob-voice-btn" onclick="startVoiceInteraction()" class="flex items-center gap-2.5 px-6 py-3 rounded-full bg-gradient-to-r from-primary to-rose-600 text-white font-semibold text-sm shadow-lg shadow-primary/25 hover:shadow-primary/40 active:scale-95 transition-all">
+            <button id="mob-voice-btn" onclick="startVoiceInteraction()" class="cyber-glow-btn flex items-center gap-3 px-8 py-3.5 rounded-full text-white font-semibold text-sm">
               <span class="material-symbols-outlined text-[20px]" id="mob-voice-btn-icon">mic</span>
               <span id="mob-voice-btn-text">Start Talking</span>
             </button>
@@ -970,31 +1076,35 @@
       <div class="flex gap-5 h-[calc(100vh-56px-28px-48px)]">
 
         <!-- Main chat -->
-        <div class="flex-1 glass-card rounded-2xl flex flex-col overflow-hidden min-w-0">
+        <div class="flex-1 glass-card rounded-3xl flex flex-col overflow-hidden min-w-0 border border-white/60 shadow-xl shadow-primary/5">
           <!-- Chat header -->
-          <div class="flex items-center justify-between px-5 py-3.5 border-b border-outline-variant/50 bg-white/60 shrink-0">
-            <div class="flex items-center gap-3">
-              <div class="relative">
-                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary-container flex items-center justify-center text-on-primary shadow-md">
-                  <span class="material-symbols-outlined text-[20px]">smart_toy</span>
+          <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/30 bg-white/70 backdrop-blur-md shrink-0">
+            <div class="flex items-center gap-3.5">
+              <div class="relative flex items-center justify-center">
+                <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary via-rose-500 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-primary/20">
+                  <span class="material-symbols-outlined text-[22px]">smart_toy</span>
                 </div>
-                <span class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-success border-2 border-white"></span>
+                <span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white animate-pulse"></span>
               </div>
               <div>
                 <div class="flex items-center gap-2">
-                  <h3 class="font-bold text-base text-on-surface leading-tight">Ekkhu — AI Friend</h3>
-                  <div class="sentient-eyes scale-75 origin-left"></div>
+                  <h3 class="font-bold text-base text-on-surface leading-tight">Ekkhu — Neural AI Friend</h3>
+                  <div class="sentient-badge">
+                    <div class="sentient-eye"></div>
+                    <div class="sentient-eye"></div>
+                    <span class="text-[10px] font-bold text-cyan-600 ml-0.5">Online</span>
+                  </div>
                 </div>
-                <p class="text-[11px] text-on-surface-variant">Knows your data · 7-day memory · Bangla voice</p>
+                <p class="text-[11px] text-on-surface-variant/80 font-medium mt-0.5">Persistent Academic Memory · High-precision Voice · Routine-aware</p>
               </div>
             </div>
             <div class="flex items-center gap-4">
               <!-- Mode Toggle (Desktop) -->
-              <div class="flex bg-surface-container rounded-lg p-1">
-                <button onclick="switchChatMode('text')" id="desk-mode-text" class="px-4 py-1.5 text-xs font-semibold rounded-md bg-white shadow-sm text-on-surface transition-all">Text Chat</button>
-                <button onclick="switchChatMode('voice')" id="desk-mode-voice" class="px-4 py-1.5 text-xs font-semibold rounded-md text-on-surface-variant hover:text-on-surface transition-all">Voice Mode</button>
+              <div class="flex bg-surface-container/80 backdrop-blur-sm rounded-xl p-1 border border-outline-variant/30">
+                <button onclick="switchChatMode('text')" id="desk-mode-text" class="px-4 py-1.5 text-xs font-semibold rounded-lg bg-white shadow-sm text-on-surface transition-all">Text Chat</button>
+                <button onclick="switchChatMode('voice')" id="desk-mode-voice" class="px-4 py-1.5 text-xs font-semibold rounded-lg text-on-surface-variant hover:text-on-surface transition-all">Voice Mode</button>
               </div>
-              <button onclick="clearDesktopChat()" title="Clear chat" class="text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors rounded-full p-1.5">
+              <button onclick="clearDesktopChat()" title="Clear chat" class="text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors rounded-xl p-2">
                 <span class="material-symbols-outlined text-[18px]">delete_sweep</span>
               </button>
             </div>
@@ -1003,106 +1113,108 @@
           <!-- TEXT MODE VIEW (Desktop) -->
           <div id="desk-text-view" class="flex-1 flex flex-col min-h-0">
             <!-- Messages -->
-            <div id="desk-chat-messages" class="flex-1 overflow-y-auto p-5 space-y-4 bg-gradient-to-b from-transparent to-primary-fixed/5">
+            <div id="desk-chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-transparent via-primary-fixed/5 to-surface-container-lowest">
               <!-- Empty state -->
               <div id="desk-chat-empty" class="h-full flex flex-col items-center justify-center text-center py-6 animate-fade-in">
-                <!-- 3D Eva Robot Mini Avatar -->
-                <div class="modelViewPort modelViewPort-mini mb-4 cursor-pointer hover:scale-105 transition-transform" onclick="quickAsk('Hi Ekkhu! How are you?')">
-                  <div class="eva">
-                    <div class="head">
-                      <div class="eyeChamber">
-                        <div class="eye"></div>
-                        <div class="eye"></div>
-                      </div>
-                    </div>
-                    <div class="body">
-                      <div class="hand"></div>
-                      <div class="hand"></div>
-                      <div class="scannerThing"></div>
-                      <div class="scannerOrigin"></div>
+                <!-- Ekkhu Mini Neural Core Avatar -->
+                <div class="ekkhu-neural-container ekkhu-neural-mini mb-4 cursor-pointer hover:scale-110 transition-transform" onclick="quickAsk('Hi Ekkhu! How are you?')">
+                  <div class="ekkhu-aura"></div>
+                  <div class="ekkhu-core-orb">
+                    <div class="ekkhu-eye-matrix">
+                      <div class="ekkhu-eye"></div>
+                      <div class="ekkhu-eye"></div>
                     </div>
                   </div>
                 </div>
 
                 <div class="flex items-center gap-2">
-                  <h3 class="text-xl font-bold text-on-surface">Hey, I'm Ekkhu</h3>
-                  <div class="sentient-eyes scale-90"></div>
+                  <h3 class="text-2xl font-bold text-on-surface tracking-tight">Hey, I'm Ekkhu 👋</h3>
                 </div>
-                <p class="text-sm text-on-surface-variant mt-2 max-w-sm">Your AI companion. I know your schedule, tasks, attendance &amp; budget — and I'm always here to talk.</p>
-                <div class="grid grid-cols-2 gap-2.5 mt-7 w-full max-w-sm">
-                  <button onclick="quickAsk('How is my day going? Give me a quick check-in based on my data.')" class="glass-card rounded-xl p-3.5 text-left hover:-translate-y-0.5 transition-all">
-                    <span class="material-symbols-outlined text-primary text-[20px]">today</span>
-                    <p class="text-sm font-semibold text-on-surface mt-1.5">Daily check-in</p>
-                    <p class="text-[11px] text-on-surface-variant mt-0.5">How's your day?</p>
+                <p class="text-sm text-on-surface-variant mt-2 max-w-md leading-relaxed">Your intelligent academic companion. I remember your routine, tasks, attendance &amp; budget — and I'm always ready to talk or brainstorm.</p>
+                <div class="grid grid-cols-2 gap-3 mt-8 w-full max-w-md">
+                  <button onclick="quickAsk('How is my day going? Give me a quick check-in based on my data.')" class="cyber-pill rounded-2xl p-4 text-left hover:-translate-y-1 hover:shadow-lg hover:border-primary/30 transition-all duration-300 group">
+                    <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-2 group-hover:bg-primary group-hover:text-white transition-colors">
+                      <span class="material-symbols-outlined text-[18px]">today</span>
+                    </div>
+                    <p class="text-sm font-bold text-on-surface">Daily Check-in</p>
+                    <p class="text-[11px] text-on-surface-variant/80 mt-0.5">Quick diagnostic on today's state</p>
                   </button>
-                  <button onclick="quickAsk('Help me plan my day based on my routine and tasks.')" class="glass-card rounded-xl p-3.5 text-left hover:-translate-y-0.5 transition-all">
-                    <span class="material-symbols-outlined text-primary text-[20px]">event_available</span>
-                    <p class="text-sm font-semibold text-on-surface mt-1.5">Plan my day</p>
-                    <p class="text-[11px] text-on-surface-variant mt-0.5">Routine &amp; tasks sorted</p>
+                  <button onclick="quickAsk('Help me plan my day based on my routine and tasks.')" class="cyber-pill rounded-2xl p-4 text-left hover:-translate-y-1 hover:shadow-lg hover:border-cyan-500/30 transition-all duration-300 group">
+                    <div class="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-600 flex items-center justify-center mb-2 group-hover:bg-cyan-500 group-hover:text-white transition-colors">
+                      <span class="material-symbols-outlined text-[18px]">event_available</span>
+                    </div>
+                    <p class="text-sm font-bold text-on-surface">Plan My Day</p>
+                    <p class="text-[11px] text-on-surface-variant/80 mt-0.5">Organize routine &amp; tasks</p>
                   </button>
-                  <button onclick="quickAsk('I am feeling down today. Cheer me up and give me some support.')" class="glass-card rounded-xl p-3.5 text-left hover:-translate-y-0.5 transition-all">
-                    <span class="material-symbols-outlined text-primary text-[20px]">favorite</span>
-                    <p class="text-sm font-semibold text-on-surface mt-1.5">Cheer me up</p>
-                    <p class="text-[11px] text-on-surface-variant mt-0.5">For the rough days</p>
+                  <button onclick="quickAsk('I am feeling down today. Cheer me up and give me some support.')" class="cyber-pill rounded-2xl p-4 text-left hover:-translate-y-1 hover:shadow-lg hover:border-rose-500/30 transition-all duration-300 group">
+                    <div class="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center mb-2 group-hover:bg-rose-500 group-hover:text-white transition-colors">
+                      <span class="material-symbols-outlined text-[18px]">favorite</span>
+                    </div>
+                    <p class="text-sm font-bold text-on-surface">Cheer Me Up</p>
+                    <p class="text-[11px] text-on-surface-variant/80 mt-0.5">Support &amp; chill vibes</p>
                   </button>
-                  <button onclick="quickAsk('Help me stay on track. What should I focus on right now?')" class="glass-card rounded-xl p-3.5 text-left hover:-translate-y-0.5 transition-all">
-                    <span class="material-symbols-outlined text-primary text-[20px]">flag</span>
-                    <p class="text-sm font-semibold text-on-surface mt-1.5">Keep me on track</p>
-                    <p class="text-[11px] text-on-surface-variant mt-0.5">Focus &amp; priorities</p>
+                  <button onclick="quickAsk('Help me stay on track. What should I focus on right now?')" class="cyber-pill rounded-2xl p-4 text-left hover:-translate-y-1 hover:shadow-lg hover:border-amber-500/30 transition-all duration-300 group">
+                    <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center mb-2 group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                      <span class="material-symbols-outlined text-[18px]">flag</span>
+                    </div>
+                    <p class="text-sm font-bold text-on-surface">Focus Priorities</p>
+                    <p class="text-[11px] text-on-surface-variant/80 mt-0.5">High-priority targets</p>
                   </button>
                 </div>
               </div>
             </div>
 
             <!-- Input -->
-            <div class="px-5 pb-5 pt-3 shrink-0">
-              <div class="flex items-end gap-3 bg-white/60 backdrop-blur-md border border-outline-variant/40 rounded-[24px] px-5 py-3 shadow-[0_8px_30px_rgb(0,0,0,0.04)] focus-within:shadow-[0_8px_30px_rgb(225,29,72,0.12)] focus-within:border-primary/30 transition-all duration-300">
-                <button onclick="toggleMic()" class="text-on-surface-variant hover:text-primary hover:bg-primary/5 rounded-full transition-colors p-2 shrink-0 mb-0.5 flex items-center justify-center">
+            <div class="px-6 pb-6 pt-3 shrink-0">
+              <div class="flex items-end gap-3 bg-white/80 backdrop-blur-xl border border-outline-variant/40 rounded-[28px] px-5 py-3 shadow-[0_10px_35px_rgb(0,0,0,0.04)] focus-within:shadow-[0_10px_40px_rgba(225,29,72,0.15)] focus-within:border-primary/40 transition-all duration-300">
+                <button onclick="toggleMic()" class="text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-full transition-colors p-2 shrink-0 mb-0.5 flex items-center justify-center" title="Voice Input">
                   <span class="material-symbols-outlined text-[22px]" id="desk-mic-icon">mic</span>
                 </button>
-                <textarea id="desk-chat-input" rows="1" placeholder="How are you? Share your day, plans, or worries..." class="flex-1 bg-transparent resize-none focus:outline-none text-[15px] leading-relaxed text-on-surface placeholder-on-surface-variant/70 max-h-36 py-1.5 self-center"></textarea>
-                <button onclick="sendChat()" class="bg-gradient-to-br from-primary to-primary-container text-white rounded-full w-10 h-10 flex items-center justify-center shadow-md hover:shadow-lg hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-300 shrink-0 mb-0.5">
+                <textarea id="desk-chat-input" rows="1" placeholder="Ask Ekkhu anything or share what's on your mind..." class="flex-1 bg-transparent resize-none focus:outline-none text-[15px] leading-relaxed text-on-surface placeholder-on-surface-variant/70 max-h-36 py-1.5 self-center"></textarea>
+                <button onclick="sendChat()" class="cyber-glow-btn text-white rounded-2xl w-10 h-10 flex items-center justify-center shrink-0 mb-0.5">
                   <span class="material-symbols-outlined text-[19px] translate-x-px" style="font-variation-settings:'FILL' 1">send</span>
                 </button>
               </div>
-              <p class="text-[11px] text-center text-on-surface-variant/80 px-1 mt-2 font-medium tracking-wide">Enter to send &bull; Shift+Enter for new line</p>
+              <p class="text-[11px] text-center text-on-surface-variant/70 px-1 mt-2 font-medium tracking-wide">Press Enter to send &bull; Shift+Enter for new line &bull; AI knows your routine</p>
             </div>
           </div>
 
           <!-- VOICE MODE VIEW (Desktop) -->
-          <div id="desk-voice-view" class="hidden flex-1 flex flex-col items-center justify-center bg-gradient-to-b from-transparent via-cyan-500/5 to-primary/5 animate-fade-in relative min-h-0 overflow-hidden px-4">
+          <div id="desk-voice-view" class="hidden flex-1 flex flex-col items-center justify-center bg-gradient-to-b from-transparent via-cyan-500/5 to-primary/5 animate-fade-in relative min-h-0 overflow-hidden px-6">
             <!-- Background acoustic waves -->
-            <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-300" id="desk-voice-waves">
-              <div class="relative w-96 h-96 flex items-center justify-center">
-                <div class="absolute inset-0 rounded-full border border-cyan-400/40 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
-                <div class="absolute inset-12 rounded-full border border-primary/30 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 0.5s"></div>
-                <div class="absolute inset-24 rounded-full border border-cyan-300/20 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 1s"></div>
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-500" id="desk-voice-waves">
+              <div class="relative w-[32rem] h-[32rem] flex items-center justify-center">
+                <div class="absolute inset-0 rounded-full border border-cyan-400/30 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
+                <div class="absolute inset-16 rounded-full border border-rose-500/25 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 0.6s"></div>
+                <div class="absolute inset-32 rounded-full border border-cyan-300/20 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]" style="animation-delay: 1.2s"></div>
               </div>
             </div>
             
-            <!-- 3D Eva Robot Avatar (Desktop) -->
-            <div id="desk-eva-robot" class="modelViewPort mb-7" onclick="startVoiceInteraction()">
-              <div class="eva">
-                <div class="head">
-                  <div class="eyeChamber">
-                    <div class="eye"></div>
-                    <div class="eye"></div>
-                  </div>
+            <!-- Ekkhu Sentient Neural Core Avatar (Desktop) -->
+            <div id="desk-neural-avatar" class="ekkhu-neural-container mb-9" onclick="startVoiceInteraction()">
+              <div class="ekkhu-aura"></div>
+              <div class="quantum-orbit orbit-cyan"></div>
+              <div class="quantum-orbit orbit-rose"></div>
+              <div class="ekkhu-core-orb">
+                <div class="ekkhu-eye-matrix">
+                  <div class="ekkhu-eye"></div>
+                  <div class="ekkhu-eye"></div>
                 </div>
-                <div class="body">
-                  <div class="hand"></div>
-                  <div class="hand"></div>
-                  <div class="scannerThing"></div>
-                  <div class="scannerOrigin"></div>
+                <div class="ekkhu-spectrum">
+                  <div class="spectrum-bar"></div>
+                  <div class="spectrum-bar"></div>
+                  <div class="spectrum-bar"></div>
+                  <div class="spectrum-bar"></div>
+                  <div class="spectrum-bar"></div>
                 </div>
               </div>
             </div>
 
             <!-- Status & Interactive Control Pill -->
-            <h3 id="desk-voice-status" class="text-2xl font-bold text-on-surface relative z-10 tracking-tight">Tap to speak</h3>
-            <p id="desk-voice-subtitle" class="text-sm text-on-surface-variant mt-1.5 max-w-sm text-center relative z-10 mb-6">Voice mode active &bull; High-accuracy Bangla &amp; Banglish 🎙️</p>
+            <h3 id="desk-voice-status" class="text-3xl font-bold text-on-surface relative z-10 tracking-tight text-center">Tap to speak</h3>
+            <p id="desk-voice-subtitle" class="text-sm text-on-surface-variant/80 mt-2 max-w-md text-center relative z-10 mb-8 font-medium">Neural Voice Active &bull; Zero Hallucination Bengali &amp; Banglish 🎙️</p>
 
-            <button id="desk-voice-btn" onclick="startVoiceInteraction()" class="relative z-10 flex items-center gap-3 px-8 py-3.5 rounded-full bg-gradient-to-r from-primary to-rose-600 text-white font-semibold text-sm shadow-xl shadow-primary/25 hover:shadow-primary/40 hover:-translate-y-0.5 active:scale-95 transition-all">
+            <button id="desk-voice-btn" onclick="startVoiceInteraction()" class="cyber-glow-btn relative z-10 flex items-center gap-3 px-9 py-4 rounded-full text-white font-semibold text-sm">
               <span class="material-symbols-outlined text-[22px]" id="desk-voice-btn-icon">mic</span>
               <span id="desk-voice-btn-text">Start Talking</span>
             </button>

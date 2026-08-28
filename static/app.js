@@ -1613,9 +1613,9 @@ function setVoiceUIState(state) {
     const status = isDesktop ? document.getElementById('desk-voice-status') : document.getElementById('mob-voice-status');
     const waves = isDesktop ? document.getElementById('desk-voice-waves') : document.getElementById('mob-voice-waves');
 
-    // Update 3D Eva Robot classes across views
-    const allRobots = [document.getElementById('desk-eva-robot'), document.getElementById('mob-eva-robot')];
-    allRobots.forEach(r => {
+    // Update Ekkhu Neural Core Avatar classes across views
+    const allAvatars = [document.getElementById('desk-neural-avatar'), document.getElementById('mob-neural-avatar')];
+    allAvatars.forEach(r => {
         if (!r) return;
         r.classList.remove('state-idle', 'state-listening', 'state-thinking', 'state-speaking');
         r.classList.add(`state-${state}`);
@@ -1626,15 +1626,13 @@ function setVoiceUIState(state) {
     if (state === 'idle') {
         if (btnIcon) btnIcon.textContent = 'mic';
         if (btnText) btnText.textContent = 'Start Talking';
-        btn.classList.remove('animate-pulse', 'from-cyan-500', 'to-blue-500', 'from-rose-500');
-        btn.classList.add('from-primary', 'to-rose-600');
+        btn.classList.remove('animate-pulse');
         if (status) status.textContent = "Tap to speak";
         if (waves) waves.style.opacity = '0';
     } else if (state === 'listening') {
         if (btnIcon) btnIcon.textContent = 'graphic_eq';
         if (btnText) btnText.textContent = 'Listening...';
-        btn.classList.add('animate-pulse', 'from-cyan-500', 'to-blue-500');
-        btn.classList.remove('from-primary', 'to-rose-600', 'from-rose-500');
+        btn.classList.add('animate-pulse');
         if (status) status.textContent = "Listening to you...";
         if (waves) waves.style.opacity = '1';
     } else if (state === 'thinking') {
@@ -1647,7 +1645,6 @@ function setVoiceUIState(state) {
         if (btnIcon) btnIcon.textContent = 'volume_up';
         if (btnText) btnText.textContent = 'Speaking...';
         btn.classList.remove('animate-pulse');
-        btn.classList.add('from-rose-500', 'to-primary');
         if (status) status.textContent = "Ekkhu is speaking";
         if (waves) waves.style.opacity = '1';
     }
