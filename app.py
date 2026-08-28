@@ -684,7 +684,7 @@ def call_gemini(messages, api_key):
                 generation_config={
                     "response_mime_type": "application/json",
                     "temperature": 0.7,
-                    "max_output_tokens": 1500
+                    "max_output_tokens": 3500
                 }
             )
             return resp.text
@@ -1308,18 +1308,45 @@ def chat():
         }), 500
 
     # 3. Parse JSON response and execute actions in a single write connection
+    def safe_parse_llm_json(raw_text):
+        text = (raw_text or '').strip()
+        if text.startswith('```json'): text = text[7:]
+        elif text.startswith('```'): text = text[3:]
+        if text.endswith('```'): text = text[:-3]
+        text = text.strip()
+
+        # 1. Direct parse
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict): return data
+        except Exception:
+            pass
+
+        # 2. Extract json block with regex
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group(0))
+                if isinstance(data, dict): return data
+            except Exception:
+                pass
+
+        # 3. If truncated, try auto-closing strings & brackets
+        for suffix in [']}', '" ]}', '" }', '}']:
+            try:
+                data = json.loads(text + suffix)
+                if isinstance(data, dict): return data
+            except Exception:
+                pass
+
+        # 4. Fallback: extract plain text lines as reply
+        lines = [line.strip() for line in text.split('\n') if line.strip() and not line.strip().startswith('{') and not line.strip().startswith('}') and '"reply"' not in line and '"actions"' not in line]
+        reply = lines if lines else [text]
+        return {"reply": reply, "emotion": "neutral", "tts_text": " ".join(reply)}
+
     try:
-        cleaned_text = response_text.strip()
-        if cleaned_text.startswith('```json'):
-            cleaned_text = cleaned_text[7:]
-        elif cleaned_text.startswith('```'):
-            cleaned_text = cleaned_text[3:]
-        if cleaned_text.endswith('```'):
-            cleaned_text = cleaned_text[:-3]
-        cleaned_text = cleaned_text.strip()
-        
-        result = json.loads(cleaned_text)
-        reply_data = result.get("reply", [cleaned_text])
+        result = safe_parse_llm_json(response_text)
+        reply_data = result.get("reply", [response_text])
         if isinstance(reply_data, str):
             reply_data = [reply_data]
             
@@ -1329,10 +1356,11 @@ def chat():
             if isinstance(r, str):
                 r_clean = re.sub(r'</?(break|emphasis|speak)[^>]*>', '', r).strip()
                 r_clean = re.sub(r' +', ' ', r_clean)
-                cleaned_reply_data.append(r_clean)
+                if r_clean:
+                    cleaned_reply_data.append(r_clean)
             else:
-                cleaned_reply_data.append(r)
-        reply_data = cleaned_reply_data
+                cleaned_reply_data.append(str(r))
+        reply_data = cleaned_reply_data if cleaned_reply_data else ["বল দোস্ত, শুনতেছি।"]
             
         emotion = result.get("emotion", "neutral")
         actions = result.get("actions", [])
@@ -1340,6 +1368,8 @@ def chat():
         tts_text = result.get("tts_text")
         if isinstance(tts_text, str):
             tts_text = re.sub(r'</?[a-zA-Z]+[^>]*>', '', tts_text).strip()
+        else:
+            tts_text = " ".join(reply_data)
 
         # Single DB write session for saving response, memory, and actions
         write_conn = get_db(user_id)
@@ -1347,55 +1377,71 @@ def chat():
 
         for msg in reply_data:
             if str(msg).strip():
-                save_message(user_id, 'assistant', str(msg).strip(), emotion, conn=write_conn)
+                try:
+                    save_message(user_id, 'assistant', str(msg).strip(), emotion, conn=write_conn)
+                except Exception as me:
+                    print(f"[DB] save_message failed: {me}")
 
         if memory_content and isinstance(memory_content, str) and memory_content.strip():
-            save_long_term_memory(user_id, memory_content.strip(), conn=write_conn)
-            print(f"[MEMORY] Saved for user {user_id}: {memory_content.strip()}")
+            try:
+                save_long_term_memory(user_id, memory_content.strip(), conn=write_conn)
+                print(f"[MEMORY] Saved for user {user_id}: {memory_content.strip()}")
+            except Exception as me:
+                print(f"[DB] save_long_term_memory failed: {me}")
 
-        if actions:
+        if actions and isinstance(actions, list):
             for action in actions:
-                atype = action.get("type")
-                if atype == "mark_absent":
-                    c_name = action.get("course", "").lower()
-                    for a in c.execute("SELECT * FROM attendance").fetchall():
-                        if c_name in decrypt_text(a['course']).lower():
-                            c.execute("UPDATE attendance SET total = total + 1 WHERE id = ?", (a['id'],))
-                            break
-                elif atype == "set_routine":
-                    raw_day = action.get('day', 'Mon')
-                    day_map = {'saturday':'Sat', 'sunday':'Sun', 'monday':'Mon', 'tuesday':'Tue', 'wednesday':'Wed', 'thursday':'Thu', 'friday':'Fri'}
-                    day_norm = day_map.get(raw_day.lower().strip(), raw_day[:3].capitalize())
-                    c.execute('INSERT INTO routine (day, time, course, room, prof, color) VALUES (?,?,?,?,?,?)',
-                              (day_norm, action.get('time','10:00 AM'),
-                               encrypt_text(action.get('course','')), encrypt_text(''), encrypt_text(''), '#af101a'))
-                elif atype == "add_task":
-                    c.execute('INSERT INTO tasks (title, note, done, date, priority) VALUES (?,?,0,?,?)',
-                              (encrypt_text(action.get('title','')), encrypt_text('Added by EKKHU'),
-                               date.today().isoformat(), 'medium'))
-                elif atype == "add_budget":
-                    try:
-                        amt = float(action.get("amount", 0.0))
-                    except (ValueError, TypeError):
-                        amt = 0.0
-                    btype = action.get('expense_type') or action.get('type') or 'expense'
-                    if btype == 'add_budget': btype = 'expense'
-                    c.execute('INSERT INTO budget (type, desc, amount, date) VALUES (?,?,?,?)',
-                              (btype, encrypt_text(action.get('desc','')),
-                               amt, action.get("date", date.today().isoformat())))
-                elif atype == "add_plan":
-                    c.execute('INSERT INTO plans (day, duration, title, status) VALUES (?,?,?,?)',
-                              (encrypt_text(action.get('day','')), encrypt_text(action.get('duration','')),
-                               encrypt_text(action.get('title','')), encrypt_text('pending')))
-            write_conn.commit()
+                if not isinstance(action, dict):
+                    continue
+                try:
+                    atype = action.get("type")
+                    if atype == "mark_absent":
+                        c_name = action.get("course", "").lower()
+                        for a in c.execute("SELECT * FROM attendance").fetchall():
+                            if c_name in decrypt_text(a['course']).lower():
+                                c.execute("UPDATE attendance SET total = total + 1 WHERE id = ?", (a['id'],))
+                                break
+                    elif atype == "set_routine":
+                        raw_day = action.get('day', 'Mon')
+                        day_map = {'saturday':'Sat', 'sunday':'Sun', 'monday':'Mon', 'tuesday':'Tue', 'wednesday':'Wed', 'thursday':'Thu', 'friday':'Fri'}
+                        day_norm = day_map.get(raw_day.lower().strip(), raw_day[:3].capitalize())
+                        c.execute('INSERT INTO routine (day, time, course, room, prof, color) VALUES (?,?,?,?,?,?)',
+                                  (day_norm, action.get('time','10:00 AM'),
+                                   encrypt_text(action.get('course','')), encrypt_text(''), encrypt_text(''), '#af101a'))
+                    elif atype == "add_task":
+                        c.execute('INSERT INTO tasks (title, note, done, date, priority) VALUES (?,?,0,?,?)',
+                                  (encrypt_text(action.get('title','')), encrypt_text('Added by EKKHU'),
+                                   date.today().isoformat(), 'medium'))
+                    elif atype == "add_budget":
+                        try:
+                            amt = float(action.get("amount", 0.0))
+                        except (ValueError, TypeError):
+                            amt = 0.0
+                        btype = action.get('expense_type') or action.get('type') or 'expense'
+                        if btype == 'add_budget': btype = 'expense'
+                        c.execute('INSERT INTO budget (type, desc, amount, date) VALUES (?,?,?,?)',
+                                  (btype, encrypt_text(action.get('desc','')),
+                                   amt, action.get("date", date.today().isoformat())))
+                    elif atype == "add_plan":
+                        c.execute('INSERT INTO plans (day, duration, title, status) VALUES (?,?,?,?)',
+                                  (encrypt_text(action.get('day','')), encrypt_text(action.get('duration','')),
+                                   encrypt_text(action.get('title','')), encrypt_text('pending')))
+                except Exception as ae:
+                    print(f"[ACTION] Execution skipped on error: {ae}")
+
+            try:
+                write_conn.commit()
+            except Exception as ce:
+                print(f"[DB] Commit error: {ce}")
+                
         write_conn.close()
 
     except Exception as e:
         import traceback; traceback.print_exc()
         print(f"Action execution error or JSON Parse error: {e}")
-        reply_data = ["Sorry, I encountered an internal error processing my thoughts."]
+        reply_data = ["আরে দোস্ত, নেটওয়ার্কে একটু ঝামেলা হইছিল। আবার একটু বলবি?"]
         emotion = "neutral"
-        tts_text = "Sorry, I encountered an internal error."
+        tts_text = "আরে দোস্ত, নেটওয়ার্কে একটু ঝামেলা হইছিল। আবার একটু বলবি?"
 
     return jsonify({"reply": reply_data, "emotion": emotion, "tts_text": tts_text})
 
