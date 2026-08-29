@@ -161,17 +161,148 @@ def pick_color(users):
             return c
     return ACCENT_COLORS[len(users) % len(ACCENT_COLORS)]
 
+import secrets
+
+SESSIONS_FILE = 'sessions.json'
+_SESSIONS_CACHE = None
+
+class AuthRequired(Exception):
+    """Raised when request lacks valid session token."""
+    pass
+
+@app.errorhandler(AuthRequired)
+def handle_auth_required(e):
+    return jsonify({"ok": False, "error": "Authentication required. Please sign in with username and PIN.", "code": "AUTH_REQUIRED"}), 401
+
+def load_sessions(force_reload=False):
+    global _SESSIONS_CACHE
+    if _SESSIONS_CACHE is not None and not force_reload:
+        return _SESSIONS_CACHE
+    
+    if os.getenv("TURSO_DATABASE_URL"):
+        try:
+            conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
+            c = conn.cursor()
+            c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
+            c.execute("SELECT value FROM global_store WHERE key='active_sessions'")
+            row = c.fetchone()
+            if row:
+                _SESSIONS_CACHE = json.loads(row[0] if isinstance(row, (tuple, list)) else row['value'])
+                return _SESSIONS_CACHE
+        except Exception as e:
+            print("[TURSO] Failed to load sessions:", e)
+        _SESSIONS_CACHE = {}
+        return _SESSIONS_CACHE
+
+    if not os.path.exists(SESSIONS_FILE):
+        _SESSIONS_CACHE = {}
+        return _SESSIONS_CACHE
+    try:
+        with open(SESSIONS_FILE) as f:
+            _SESSIONS_CACHE = json.load(f)
+    except Exception:
+        _SESSIONS_CACHE = {}
+    return _SESSIONS_CACHE
+
+def save_sessions(sessions):
+    global _SESSIONS_CACHE
+    _SESSIONS_CACHE = sessions
+    if os.getenv("TURSO_DATABASE_URL"):
+        try:
+            conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
+            c = conn.cursor()
+            c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
+            c.execute("INSERT INTO global_store (key, value) VALUES ('active_sessions', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(sessions),))
+            conn.commit()
+            return
+        except Exception as e:
+            print("[TURSO] Failed to save sessions:", e)
+    try:
+        with open(SESSIONS_FILE, 'w') as f:
+            json.dump(sessions, f, indent=2)
+    except Exception as e:
+        print("[SESSIONS] Failed to write sessions file:", e)
+
+def create_session(user_id, name, color):
+    token = secrets.token_urlsafe(32)
+    sessions = load_sessions()
+    sessions[token] = {
+        "user_id": user_id,
+        "name": name,
+        "color": color,
+        "created_at": datetime.now().isoformat(),
+        "expires_at": (datetime.now() + timedelta(days=30)).isoformat()
+    }
+    save_sessions(sessions)
+    return token
+
+def verify_session(token):
+    if not token:
+        return None
+    sessions = load_sessions()
+    sess = sessions.get(token)
+    if not sess:
+        return None
+    try:
+        exp = datetime.fromisoformat(sess.get('expires_at', '2000-01-01T00:00:00'))
+        if exp > datetime.now():
+            return sess
+    except Exception:
+        pass
+    # Expired session cleanup
+    sessions.pop(token, None)
+    save_sessions(sessions)
+    return None
+
+def revoke_session(token):
+    if not token: return
+    sessions = load_sessions()
+    if token in sessions:
+        sessions.pop(token, None)
+        save_sessions(sessions)
+
+# ------------------------------------------------------------------
+# Rate Limiting & Lockout Tracker for PINs
+# ------------------------------------------------------------------
+_FAILED_LOGINS = {} # key -> list of timestamp floats
+
+def check_rate_limit(key, max_attempts=5, window_seconds=900):
+    """Return (allowed: bool, remaining_lockout_seconds: int)"""
+    now = datetime.now().timestamp()
+    attempts = _FAILED_LOGINS.get(key, [])
+    recent = [t for t in attempts if now - t < window_seconds]
+    _FAILED_LOGINS[key] = recent
+    if len(recent) >= max_attempts:
+        oldest_in_window = min(recent)
+        remaining = int(window_seconds - (now - oldest_in_window))
+        return False, max(1, remaining)
+    return True, 0
+
+def record_failed_login(key):
+    now = datetime.now().timestamp()
+    if key not in _FAILED_LOGINS:
+        _FAILED_LOGINS[key] = []
+    _FAILED_LOGINS[key].append(now)
+
+def clear_failed_logins(key):
+    _FAILED_LOGINS.pop(key, None)
+
 def hash_pin(pin):
-    return hashlib.sha256(str(pin).encode()).hexdigest()
+    return hashlib.sha256(str(pin).strip().encode()).hexdigest()
 
 def get_current_user_id():
-    uid = request.headers.get('X-User-ID', '')
-    users = load_users()
-    valid_ids = {u['id'] for u in users}
-    if uid in valid_ids:
-        return uid
-    # Fallback: first user
-    return users[0]['id'] if users else 'u1'
+    """Extract and strictly validate cryptographic session token."""
+    token = request.headers.get('X-Session-Token', '') or request.cookies.get('session_token', '')
+    if not token and request.headers.get('Authorization', '').startswith('Bearer '):
+        token = request.headers.get('Authorization', '')[7:].strip()
+    
+    if token:
+        sess = verify_session(token)
+        if sess and sess.get('user_id'):
+            return sess['user_id']
+            
+    # Raise AuthRequired exception -> immediately triggers 401 JSON error handler
+    raise AuthRequired("Authentication session invalid or expired")
 
 # ------------------------------------------------------------------
 # Encryption helpers
@@ -376,8 +507,13 @@ def init_db_schema(conn):
     c.execute('''CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT, note TEXT, done INTEGER DEFAULT 0,
-        date TEXT, priority TEXT DEFAULT 'medium'
+        date TEXT, priority TEXT DEFAULT 'medium',
+        due_time TEXT DEFAULT '11:59 PM'
     )''')
+    try:
+        c.execute('ALTER TABLE tasks ADD COLUMN due_time TEXT DEFAULT "11:59 PM"')
+    except Exception:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS plans (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         day TEXT, duration TEXT, title TEXT, status TEXT DEFAULT 'pending'
@@ -396,6 +532,32 @@ def init_db_schema(conn):
         content TEXT,
         category TEXT DEFAULT 'milestone'
     )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS focus_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_label TEXT DEFAULT '',
+        cycles_planned INTEGER DEFAULT 1,
+        cycles_done INTEGER DEFAULT 1,
+        total_minutes INTEGER DEFAULT 25,
+        date TEXT,
+        started_at TEXT
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS exams (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        course TEXT,
+        type TEXT DEFAULT 'Quiz',
+        date TEXT,
+        time TEXT DEFAULT '10:00 AM',
+        notes TEXT DEFAULT ''
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS academic_profile (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        current_semester TEXT DEFAULT '6th Semester',
+        baseline_cgpa REAL DEFAULT 0.0,
+        baseline_credits REAL DEFAULT 0.0
+    )''')
+    c.execute('INSERT OR IGNORE INTO academic_profile (id, current_semester, baseline_cgpa, baseline_credits) VALUES (1, ?, 0.0, 0.0)',
+              (encrypt_text('6th Semester'),))
     conn.commit()
 
 def init_db(user_id='A'):
@@ -620,6 +782,29 @@ def build_system_prompt(user_id, conn=None):
     # Add session context: time gap + mood pattern
     prompt += build_session_context(user_id, conn=conn)
 
+    # Add Academic Profile Standing Context
+    try:
+        c_prof = conn.cursor() if conn else get_db(user_id).cursor()
+        prof_row = c_prof.execute('SELECT * FROM academic_profile WHERE id=1').fetchone()
+        if prof_row:
+            cur_sem = decrypt_text(prof_row['current_semester']) if prof_row['current_semester'] else '6th Semester'
+            b_cgpa = float(prof_row['baseline_cgpa'] or 0.0)
+            b_creds = float(prof_row['baseline_credits'] or 0.0)
+            
+            g_rows = c_prof.execute('SELECT * FROM grades').fetchall()
+            c_creds = sum(r['credit'] for r in g_rows)
+            c_pts = sum(r['grade'] * r['credit'] for r in g_rows)
+            tot_c = b_creds + c_creds
+            tot_p = (b_creds * b_cgpa) + c_pts
+            tot_cgpa = round(tot_p / tot_c, 2) if tot_c > 0 else b_cgpa
+            
+            prompt += f"\n\n=== USER'S CURRENT ACADEMIC STANDING ===\n"
+            prompt += f"- Current Academic Level: {cur_sem}\n"
+            prompt += f"- Accumulated CGPA: {tot_cgpa:.2f} ({tot_c:.1f} total credits completed so far)\n"
+            prompt += f"- Keep this academic standing in mind when advising on exams, semester prep, study load, or career planning."
+    except Exception:
+        pass
+
     return prompt
 
 # ------------------------------------------------------------------
@@ -712,8 +897,86 @@ def call_llm(messages):
             return result
         except Exception as e:
             errors.append(f"{name}: {e}")
-            print(f"[LLM] Provider '{name}' failed → {e}")
+            print(f"[LLM] Provider '{name}' failed: {e}")
     raise Exception("All providers failed: " + str(errors))
+
+import math
+
+def safe_parse_json(raw_text):
+    """Safely parse JSON from LLM output, stripping codeblocks or auto-closing brackets."""
+    text = (raw_text or '').strip()
+    if text.startswith('```json'): text = text[7:]
+    elif text.startswith('```'): text = text[3:]
+    if text.endswith('```'): text = text[:-3]
+    text = text.strip()
+
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict): return data
+    except Exception:
+        pass
+
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            if isinstance(data, dict): return data
+        except Exception:
+            pass
+
+    for suffix in [']}', '" ]}', '" }', '}']:
+        try:
+            data = json.loads(text + suffix)
+            if isinstance(data, dict): return data
+        except Exception:
+            pass
+
+    return None
+
+def calculate_bunk_shield(present, total):
+    """Calculate exact safe misses or recovery classes needed for 75% attendance threshold."""
+    if not total or total == 0:
+        return {
+            "percent": 100.0,
+            "safe_bunks": 0,
+            "recovery_needed": 0,
+            "status": "FRESH",
+            "status_text": "No classes recorded yet",
+            "status_badge": "FRESH"
+        }
+    
+    pct = round((present / total) * 100, 1)
+    
+    if pct >= 75.0:
+        safe_bunks = max(0, int((present / 0.75) - total))
+        if safe_bunks == 0:
+            status = "ZERO_BUFFER"
+            status_text = "🚨 ZERO BUFFER: Next class attendance is critical! Missing will drop below 75%"
+            status_badge = "0 Bunks"
+        elif safe_bunks == 1:
+            status = "WARNING_1"
+            status_text = "⚠️ 1 Safe Bunk Left before dropping below 75%"
+            status_badge = "1 Bunk"
+        else:
+            status = "SAFE"
+            status_text = f"🛡️ {safe_bunks} Safe Bunks available while staying ≥75%"
+            status_badge = f"{safe_bunks} Bunks"
+        recovery_needed = 0
+    else:
+        recovery_needed = max(1, int(math.ceil((0.75 * total - present) / 0.25)))
+        safe_bunks = 0
+        status = "DEFICIT"
+        status_text = f"🩹 Attendance Deficit ({pct}%): Must attend {recovery_needed} consecutive class(es) to recover 75%"
+        status_badge = f"+{recovery_needed} Recover"
+        
+    return {
+        "percent": pct,
+        "safe_bunks": safe_bunks,
+        "recovery_needed": recovery_needed,
+        "status": status,
+        "status_text": status_text,
+        "status_badge": status_badge
+    }
 
 # ------------------------------------------------------------------
 # Context builder
@@ -725,81 +988,178 @@ def get_user_context(user_id, conn=None):
         close_after = True
     c = conn.cursor()
     
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone, timedelta, date
     bd_tz = timezone(timedelta(hours=6))
     now = datetime.now(bd_tz)
     
     days_map = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat', 6: 'Sun'}
-    today = days_map[now.weekday()]
+    full_days_map = {0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday', 4: 'Friday', 5: 'Saturday', 6: 'Sunday'}
+    
+    today_code = days_map[now.weekday()]
+    today_full = full_days_map[now.weekday()]
+    
+    tomorrow_dt = now + timedelta(days=1)
+    tomorrow_code = days_map[tomorrow_dt.weekday()]
+    tomorrow_full = full_days_map[tomorrow_dt.weekday()]
     
     time_str = now.strftime("%I:%M %p")
     date_str = now.strftime("%B %d, %Y")
+    today_iso = now.date().isoformat()
     
     hour = now.hour
+    is_late_night = 1 <= hour <= 5
     if 5 <= hour < 12:
         time_of_day = "Morning"
     elif 12 <= hour < 17:
         time_of_day = "Afternoon"
     elif 17 <= hour < 20:
         time_of_day = "Evening"
-    else:
+    elif 20 <= hour <= 23:
         time_of_day = "Night"
+    else:
+        time_of_day = "Late Night / Deep Midnight"
 
-    today_routine = c.execute('SELECT * FROM routine WHERE day=? ORDER BY time', (today,)).fetchall()
+    # Routine: Today & Tomorrow
+    today_routine = c.execute('SELECT * FROM routine WHERE day=? ORDER BY time', (today_code,)).fetchall()
+    tomorrow_routine = c.execute('SELECT * FROM routine WHERE day=? ORDER BY time', (tomorrow_code,)).fetchall()
+    
+    # Exams upcoming within 7 days
+    upcoming_exams = c.execute('SELECT * FROM exams WHERE date >= ? ORDER BY date ASC, time ASC LIMIT 5', (today_iso,)).fetchall()
+    
+    # Tasks
+    pending_tasks = c.execute('SELECT * FROM tasks WHERE done=0 ORDER BY date ASC, priority DESC').fetchall()
+    
+    overdue_tasks = []
+    today_tasks = []
+    future_tasks = []
+    
+    for t in pending_tasks:
+        t_dict = dict(t)
+        t_dict['title'] = decrypt_text(t_dict['title'])
+        t_dict['note'] = decrypt_text(t_dict['note']) if t_dict.get('note') else ""
+        t_dict['due_time'] = t_dict.get('due_time') or '11:59 PM'
+        t_date = t_dict.get('date', today_iso)
+        if t_date < today_iso:
+            overdue_tasks.append(t_dict)
+        elif t_date == today_iso:
+            today_tasks.append(t_dict)
+        else:
+            future_tasks.append(t_dict)
+
+    # Focus logged today
+    focus_row = c.execute('SELECT SUM(total_minutes) as mins FROM focus_sessions WHERE date=?', (today_iso,)).fetchone()
+    today_focus_mins = focus_row['mins'] if focus_row and focus_row['mins'] else 0
+
+    # Attendance
     att = c.execute('SELECT * FROM attendance').fetchall()
 
-    ctx = f"=== CURRENT CONTEXT (Bangladesh Time) ===\n"
-    ctx += f"Date: {date_str} ({today})\n"
-    ctx += f"Time: {time_str} ({time_of_day})\n\n"
-    
-    ctx += f"Today's Classes:\n"
-    if today_routine:
-        for r in today_routine:
-            ctx += f"- {decrypt_text(r['course'])} at {r['time']}\n"
-    else:
-        ctx += "No classes scheduled for today.\n"
-
-    # Query tasks
-    tasks = c.execute('SELECT * FROM tasks WHERE done=0').fetchall()
-    
-    ctx += "\nPending Tasks:\n"
-    if tasks:
-        for t in tasks:
-            title = decrypt_text(t['title'])
-            note = decrypt_text(t['note']) if t['note'] else ""
-            ctx += f"- {title} (Due: {t['date']}, Priority: {t['priority']}) {note}\n"
-    else:
-        ctx += "No pending tasks.\n"
-        
-    # Query budget for current month
-    from datetime import date
-    curr_month = date.today().strftime('%Y-%m')
+    # Budget
+    curr_month = now.strftime('%Y-%m')
     budget = c.execute('SELECT * FROM budget WHERE date LIKE ?', (f"{curr_month}%",)).fetchall()
     
     if close_after:
         conn.close()
+
+    # Workload & Situational Classification
+    has_urgent = len(overdue_tasks) > 0 or any(t.get('priority') == 'urgent' for t in today_tasks)
+    has_near_exam = len(upcoming_exams) > 0 and (upcoming_exams[0]['date'] <= (now + timedelta(days=2)).date().isoformat())
     
+    if has_urgent or has_near_exam or len(pending_tasks) >= 4:
+        workload_status = "HEAVY_OR_URGENT"
+    elif len(pending_tasks) >= 2 or len(today_routine) >= 2:
+        workload_status = "MODERATE"
+    else:
+        workload_status = "LIGHT_OR_CHILL"
+
+    ctx = f"=== CURRENT REALITY & TEMPORAL CONTEXT (Bangladesh Time) ===\n"
+    ctx += f"- Current Date & Day: {date_str} ({today_full})\n"
+    ctx += f"- Current Time: {time_str} ({time_of_day})\n"
+    ctx += f"- Tomorrow: {tomorrow_full} ({len(tomorrow_routine)} class(es) scheduled)\n"
+    ctx += f"- Today's Study Focus Logged: {today_focus_mins} minutes\n"
+    ctx += f"- Current Workload Level: {workload_status}\n\n"
+
+    # Attendance Bunk Shield Analysis for Today's Classes
+    critical_att_alerts = []
+    att_dict = {}
+    for a in att:
+        c_name = decrypt_text(a['course'])
+        shield = calculate_bunk_shield(a['present'], a['total'])
+        att_dict[c_name.lower().strip()] = (c_name, shield)
+
+    if today_routine:
+        for r in today_routine:
+            c_name = decrypt_text(r['course']).lower().strip()
+            if c_name in att_dict:
+                orig_name, shield = att_dict[c_name]
+                if shield['status'] in ['ZERO_BUFFER', 'DEFICIT']:
+                    critical_att_alerts.append(f"{orig_name} ({shield['percent']}%, {shield['status_text']})")
+
+    ctx += "Today's Schedule:\n"
+    if today_routine:
+        for r in today_routine:
+            ctx += f"- {decrypt_text(r['course'])} at {r['time']}\n"
+    else:
+        ctx += "- No classes scheduled today.\n"
+
+    if critical_att_alerts:
+        ctx += "\n🚨 CRITICAL ATTENDANCE RISK ON TODAY'S CLASSES:\n"
+        for alert in critical_att_alerts:
+            ctx += f"  * {alert}\n"
+            ctx += "  * ACTION: Strongly advise user that today's class must NOT be missed under any circumstances!\n"
+
+    ctx += f"\nTomorrow's Schedule ({tomorrow_full}):\n"
+    if tomorrow_routine:
+        for r in tomorrow_routine:
+            ctx += f"- {decrypt_text(r['course'])} at {r['time']}\n"
+    else:
+        ctx += f"- FREE DAY! No classes scheduled tomorrow ({tomorrow_full}).\n"
+
+    ctx += "\nUpcoming Exams / Quizzes (Next 7 Days):\n"
+    if upcoming_exams:
+        for e in upcoming_exams:
+            ctx += f"- {decrypt_text(e['type'])}: {decrypt_text(e['course'])} on {e['date']} at {e['time']} ({decrypt_text(e['title'])})\n"
+    else:
+        ctx += "- No exams in the immediate next 7 days.\n"
+
+    ctx += "\nTask Backlog & Deadlines:\n"
+    if overdue_tasks:
+        ctx += f"⚠️ OVERDUE TASKS ({len(overdue_tasks)}):\n"
+        for t in overdue_tasks:
+            ctx += f"  * [OVERDUE] {t['title']} (Was due: {t['date']} {t['due_time']}, Priority: {t['priority']})\n"
+    if today_tasks:
+        ctx += f"🔥 DUE TODAY ({len(today_tasks)}):\n"
+        for t in today_tasks:
+            ctx += f"  * [DUE TODAY] {t['title']} (Deadline: {t['due_time']}, Priority: {t['priority']})\n"
+    if future_tasks:
+        ctx += f"Upcoming Tasks ({len(future_tasks)}):\n"
+        for t in future_tasks:
+            ctx += f"  * {t['title']} (Due: {t['date']} {t['due_time']})\n"
+    if not pending_tasks:
+        ctx += "- Clean Backlog! All tasks are currently 100% completed.\n"
+
     ctx += "\nThis Month's Budget & Expenses:\n"
     if budget:
         total_expense = sum(b['amount'] for b in budget if b['type'] == 'expense')
         total_income = sum(b['amount'] for b in budget if b['type'] == 'income')
-        ctx += f"- Total Income: {total_income} BDT\n"
-        ctx += f"- Total Expense: {total_expense} BDT\n"
-        ctx += f"- Recent records:\n"
-        for b in budget[-5:]:
-            desc = decrypt_text(b['desc'])
-            ctx += f"  * {b['type'].capitalize()}: {b['amount']} BDT for {desc} (on {b['date']})\n"
-    else:
-        ctx += "No budget records for this month.\n"
+        ctx += f"- Total Income: {total_income} BDT, Total Expense: {total_expense} BDT\n"
 
-    ctx += "\nOverall Attendance History:\n"
-    if att:
-        for a in att:
-            total = a['total']
-            present = a['present']
-            course = decrypt_text(a['course'])
-            missed = total - present
-            ctx += f"- {course}: Missed {missed} classes (Total: {total}, Attended: {present})\n"
+    # Strict Situational Behavioral Directives
+    ctx += "\n══════════════════════════════════════════════════\n"
+    ctx += "🧠 EKKHU'S SITUATIONAL INTELLIGENCE & ACTION DIRECTIVE:\n"
+    ctx += "══════════════════════════════════════════════════\n"
+    
+    if is_late_night:
+        ctx += "- LATE NIGHT (1AM - 5AM): User is awake very late. Notice the late hour casually and caring-ly ('এত রাতে কি করস রে ভাই? ঘুমা, শরীর খারাপ করবে'). If they are studying, encourage them to wrap up and sleep.\n"
+    elif workload_status == "LIGHT_OR_CHILL":
+        ctx += "- LIGHT WORKLOAD: User has almost no urgent work and tomorrow is free/light. Tell them to chill, play games, or relax! E.g. 'কালকে করলেও পারিস, আজ কাজ তেমন নাই তো' or 'কালকে আরামসে রেস্ট নিস, আজকে অল্প একটু থাকলে নামায় ফেল চিল মুডে থাকবি।' Do NOT invent fake emergencies or nag them.\n"
+    elif workload_status == "HEAVY_OR_URGENT":
+        ctx += "- URGENT / HEAVY WORKLOAD: User has overdue work, a deadline today, or an upcoming exam. Act as a caring, witty, responsible accountability partner. Ask them directly about their progress on specific tasks (e.g. 'ওই কাজটা কি করলি?', 'অ্যাসাইনমেন্ট কতদূর?'). Playfully push them to sit down and finish without slacking off.\n"
+    else:
+        ctx += "- BALANCED WORKLOAD: Keep a great balance between playful banter and asking about their study sprint.\n"
+    
+    ctx += "- ALWAYS PROACTIVELY INQUIRE about active tasks in a natural, friendly friend style (e.g. 'আচ্ছা, তোর ওই টাস্কটা শেষ হইসে?'). Never sound like a robotic corporate assistant.\n"
+    ctx += "══════════════════════════════════════════════════\n"
+
     return ctx
 
 # ------------------------------------------------------------------
@@ -809,36 +1169,96 @@ def get_user_context(user_id, conn=None):
 def index():
     return render_template('index.html')
 
-@app.route('/api/users', methods=['GET'])
-def api_users():
+@app.route('/api/auth/login', methods=['POST'])
+def api_auth_login():
+    """Authenticate with Username / Name and 6-digit PIN."""
+    data = request.json or {}
+    username = data.get('username', '').strip()
+    pin = str(data.get('pin', '')).strip()
+
+    if not username:
+        return jsonify({"ok": False, "error": "Please enter your username / name"}), 400
+    if not pin:
+        return jsonify({"ok": False, "error": "Please enter your PIN"}), 400
+
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown_ip').split(',')[0].strip()
+    rate_key = f"{ip}:{username.lower()}"
+    allowed, rem_secs = check_rate_limit(rate_key)
+    if not allowed:
+        rem_mins = int(rem_secs // 60) + 1
+        return jsonify({"ok": False, "error": f"Too many failed attempts. Account locked for {rem_mins} minutes."}), 429
+
     users = load_users()
-    safe = [
-        {"id": u['id'], "name": u['name'], "color": u['color'],
-         "has_pin": u['pin_hash'] is not None}
-        for u in users
-    ]
-    return jsonify(safe)
+    user = next((u for u in users if u['name'].strip().lower() == username.lower()), None)
+    if not user:
+        record_failed_login(rate_key)
+        return jsonify({"ok": False, "error": "Invalid username or PIN"}), 401
+
+    if hash_pin(pin) == user.get('pin_hash'):
+        clear_failed_logins(rate_key)
+        token = create_session(user['id'], user['name'], user.get('color', '#af101a'))
+        return jsonify({
+            "ok": True,
+            "token": token,
+            "user": {
+                "id": user['id'],
+                "name": user['name'],
+                "color": user.get('color', '#af101a')
+            }
+        })
+
+    record_failed_login(rate_key)
+    return jsonify({"ok": False, "error": "Invalid username or PIN"}), 401
+
+@app.route('/api/auth/me', methods=['GET'])
+def api_auth_me():
+    """Verify active session token and return user identity."""
+    token = request.headers.get('X-Session-Token', '') or request.cookies.get('session_token', '')
+    if not token and request.headers.get('Authorization', '').startswith('Bearer '):
+        token = request.headers.get('Authorization', '')[7:].strip()
+    sess = verify_session(token)
+    if not sess:
+        return jsonify({"ok": False, "error": "Session invalid or expired", "code": "AUTH_REQUIRED"}), 401
+    return jsonify({
+        "ok": True,
+        "user": {
+            "id": sess['user_id'],
+            "name": sess['name'],
+            "color": sess.get('color', '#af101a')
+        }
+    })
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_auth_logout():
+    """Revoke active session token."""
+    token = request.headers.get('X-Session-Token', '') or request.cookies.get('session_token', '')
+    if not token and request.headers.get('Authorization', '').startswith('Bearer '):
+        token = request.headers.get('Authorization', '')[7:].strip()
+    revoke_session(token)
+    return jsonify({"ok": True})
 
 @app.route('/api/create_account', methods=['POST'])
 def api_create_account():
-    """Create a new account using the invite code."""
+    """Create a new account using 6-digit PIN and invite code."""
     data = request.json or {}
     name = data.get('name', '').strip()
-    pin  = str(data.get('pin', ''))
+    pin  = str(data.get('pin', '')).strip()
     code = data.get('invite_code', '').strip()
 
     if not name:
-        return jsonify({"ok": False, "error": "Name is required"}), 400
-    if len(pin) != 4 or not pin.isdigit():
-        return jsonify({"ok": False, "error": "PIN must be exactly 4 digits"}), 400
+        return jsonify({"ok": False, "error": "Name / Username is required"}), 400
+    if len(name) < 2:
+        return jsonify({"ok": False, "error": "Username must be at least 2 characters"}), 400
+    if len(pin) != 6 or not pin.isdigit():
+        return jsonify({"ok": False, "error": "PIN must be exactly 6 digits"}), 400
 
     cfg = load_config()
     if code != cfg.get('invite_code', 'EKKU2025'):
         return jsonify({"ok": False, "error": "Invalid invite code"}), 403
 
-    # Check duplicate name
-    if any(u['name'].lower() == name.lower() for u in cfg['users']):
-        return jsonify({"ok": False, "error": "An account with that name already exists"}), 409
+    # Check duplicate name (case-insensitive)
+    if any(u['name'].strip().lower() == name.lower() for u in cfg['users']):
+        return jsonify({"ok": False, "error": "An account with that username already exists"}), 409
 
     uid   = generate_user_id()
     color = pick_color(cfg['users'])
@@ -851,25 +1271,13 @@ def api_create_account():
     cfg['users'].append(new_user)
     save_config(cfg)
     init_db(uid)
-    return jsonify({"ok": True, "id": uid, "name": name, "color": color})
-
-@app.route('/api/auth', methods=['POST'])
-def api_auth():
-    data = request.json or {}
-    user_id = data.get('user_id', '')
-    pin = str(data.get('pin', ''))
-    users = load_users()
-    user = next((u for u in users if u['id'] == user_id), None)
-    if not user:
-        return jsonify({"ok": False, "error": "User not found"}), 404
-    if user['pin_hash'] is None:
-        return jsonify({"ok": True, "needs_setup": True})
-    if hash_pin(pin) == user['pin_hash']:
-        return jsonify({"ok": True, "needs_setup": False, "name": user['name'], "color": user['color']})
-    return jsonify({"ok": False, "error": "Wrong PIN"}), 401
+    
+    token = create_session(uid, name, color)
+    return jsonify({"ok": True, "token": token, "id": uid, "name": name, "color": color})
 
 @app.route('/api/update_user', methods=['POST'])
 def api_update_user():
+    """Update profile name, color, or 6-digit PIN."""
     user_id = get_current_user_id()
     data = request.json or {}
     users = load_users()
@@ -881,9 +1289,11 @@ def api_update_user():
     if data.get('color', '').strip():
         user['color'] = data['color'].strip()
     if data.get('new_pin', ''):
-        p = str(data['new_pin'])
-        if len(p) == 4 and p.isdigit():
+        p = str(data['new_pin']).strip()
+        if len(p) == 6 and p.isdigit():
             user['pin_hash'] = hash_pin(p)
+        else:
+            return jsonify({"ok": False, "error": "New PIN must be exactly 6 digits"}), 400
     save_users_data(users)
     return jsonify({"ok": True})
 
@@ -892,7 +1302,7 @@ def api_change_invite_code():
     user_id = get_current_user_id()
     data = request.json or {}
     new_code = data.get('invite_code', '').strip()
-    current_pin = str(data.get('pin', ''))
+    current_pin = str(data.get('pin', '')).strip()
     if len(new_code) < 4:
         return jsonify({"ok": False, "error": "Invite code must be at least 4 characters"}), 400
     users = load_users()
@@ -1426,6 +1836,14 @@ def chat():
                         c.execute('INSERT INTO plans (day, duration, title, status) VALUES (?,?,?,?)',
                                   (encrypt_text(action.get('day','')), encrypt_text(action.get('duration','')),
                                    encrypt_text(action.get('title','')), encrypt_text('pending')))
+                    elif atype == "add_exam":
+                        c.execute('INSERT INTO exams (title, course, type, date, time, notes) VALUES (?,?,?,?,?,?)',
+                                  (encrypt_text(action.get('title', 'Exam')),
+                                   encrypt_text(action.get('course', '')),
+                                   encrypt_text(action.get('exam_type') or action.get('type') or 'Quiz'),
+                                   action.get('date', date.today().isoformat()),
+                                   action.get('time', '10:00 AM'),
+                                   encrypt_text(action.get('notes', ''))))
                 except Exception as ae:
                     print(f"[ACTION] Execution skipped on error: {ae}")
 
@@ -1488,8 +1906,152 @@ def routine_api():
         conn.commit(); conn.close()
         return jsonify({"ok": True})
 
+@app.route('/api/routine/parse', methods=['POST'])
+def routine_parse_api():
+    """Extract routine classes from uploaded image/pdf or raw text snippet using Gemini Vision / LLM."""
+    user_id = get_current_user_id()
+    raw_text = ""
+    file_bytes = None
+    mime_type = None
+
+    if 'file' in request.files:
+        f = request.files['file']
+        if f.filename:
+            mime_type = f.mimetype or 'image/png'
+            file_bytes = f.read()
+    elif request.json:
+        raw_text = request.json.get('text', '').strip()
+    elif request.form:
+        raw_text = request.form.get('text', '').strip()
+
+    if not file_bytes and not raw_text:
+        return jsonify({"ok": False, "error": "No image or text provided"}), 400
+
+    prompt = (
+        "You are an ultra-accurate university timetable and class routine parser. "
+        "Extract every single scheduled lecture/class from the provided image or text. "
+        "OUTPUT PURE VALID JSON ONLY in this exact format:\n"
+        '{\n'
+        '  "classes": [\n'
+        '    {\n'
+        '      "day": "Sun" | "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat",\n'
+        '      "time": "10:00 AM" | "01:30 PM",\n'
+        '      "course": "Course Code or Name (e.g. CSE 220)",\n'
+        '      "room": "Room number (e.g. UB702, Room 401)",\n'
+        '      "prof": "Faculty Name or Initials",\n'
+        '      "color": "#6366f1"\n'
+        '    }\n'
+        '  ]\n'
+        '}\n'
+        "RULES:\n"
+        "1. Map days to: 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'.\n"
+        "2. Format time as 'hh:mm AM' or 'hh:mm PM' (12-hour format).\n"
+        "3. Assign distinct colors from: ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#3b82f6'].\n"
+        "4. If room or prof is missing, leave empty string.\n"
+        "5. Do NOT include markdown ticks or text outside JSON."
+    )
+
+    extracted_classes = []
+
+    # 1. Vision with Gemini Multimodal
+    if file_bytes:
+        gemini_keys = [k for k in [GEMINI_API_KEY_1, GEMINI_API_KEY_2] if k]
+        for key in gemini_keys:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=key)
+                for model_name in ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']:
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        clean_mime = 'image/jpeg' if 'jpeg' in mime_type or 'jpg' in mime_type else 'image/png' if 'png' in mime_type else 'image/webp' if 'webp' in mime_type else 'image/png'
+                        resp = model.generate_content([
+                            prompt,
+                            {'mime_type': clean_mime, 'data': file_bytes}
+                        ])
+                        txt = resp.text.strip() if resp.text else ""
+                        parsed = safe_parse_json(txt)
+                        if parsed and isinstance(parsed.get('classes'), list) and len(parsed['classes']) > 0:
+                            extracted_classes = parsed['classes']
+                            break
+                    except Exception as me:
+                        print(f"[RoutineVision] {model_name} failed: {me}")
+                if extracted_classes:
+                    break
+            except Exception as ke:
+                print(f"[RoutineVision] Gemini key error: {ke}")
+
+    # 2. Text Parsing with LLM (Groq / Gemini)
+    if not extracted_classes and (raw_text or file_bytes):
+        text_payload = raw_text if raw_text else file_bytes.decode('utf-8', errors='ignore')
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"Extract all class routine entries from this text:\n\n{text_payload}"}
+        ]
+        try:
+            resp_text = call_llm(messages)
+            parsed = safe_parse_json(resp_text)
+            if parsed and isinstance(parsed.get('classes'), list):
+                extracted_classes = parsed['classes']
+        except Exception as e:
+            print(f"[RoutineText] LLM failed: {e}")
+
+    # Normalize extracted classes
+    clean_classes = []
+    valid_days = {'sun': 'Sun', 'mon': 'Mon', 'tue': 'Tue', 'wed': 'Wed', 'thu': 'Thu', 'fri': 'Fri', 'sat': 'Sat',
+                  'sunday': 'Sun', 'monday': 'Mon', 'tuesday': 'Tue', 'wednesday': 'Wed', 'thursday': 'Thu', 'friday': 'Fri', 'saturday': 'Sat'}
+    colors = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#3b82f6']
+
+    for idx, c in enumerate(extracted_classes):
+        if not isinstance(c, dict): continue
+        d_raw = str(c.get('day', '')).strip().lower()
+        d_clean = valid_days.get(d_raw, 'Sun')
+        c_course = str(c.get('course', '')).strip()
+        if not c_course: continue
+        c_time = str(c.get('time', '10:00 AM')).strip()
+        c_room = str(c.get('room', '')).strip()
+        c_prof = str(c.get('prof', '')).strip()
+        c_color = c.get('color') or colors[idx % len(colors)]
+        clean_classes.append({
+            "day": d_clean,
+            "time": c_time,
+            "course": c_course,
+            "room": c_room,
+            "prof": c_prof,
+            "color": c_color
+        })
+
+    return jsonify({"ok": True, "classes": clean_classes, "count": len(clean_classes)})
+
+@app.route('/api/routine/batch_import', methods=['POST'])
+def routine_batch_import():
+    """Batch import extracted routine classes into database."""
+    user_id = get_current_user_id()
+    data = request.json or {}
+    classes = data.get('classes', [])
+    replace_all = data.get('replace_all', False)
+    
+    if not classes:
+        return jsonify({"ok": False, "error": "No classes to import"}), 400
+
+    conn = get_db(user_id)
+    c = conn.cursor()
+    if replace_all:
+        c.execute('DELETE FROM routine')
+    
+    for item in classes:
+        c.execute('INSERT INTO routine (day, time, course, room, prof, color) VALUES (?,?,?,?,?,?)',
+                  (item.get('day', 'Sun'), item.get('time', '10:00 AM'),
+                   encrypt_text(item.get('course', '')),
+                   encrypt_text(item.get('room', '')),
+                   encrypt_text(item.get('prof', '')),
+                   item.get('color', '#6366f1')))
+    
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "imported_count": len(classes)})
+
 # ------------------------------------------------------------------
-# Routes — Attendance
+# Routes — Attendance & AI Class Bunk Shield
 # ------------------------------------------------------------------
 @app.route('/api/attendance', methods=['GET', 'POST', 'DELETE'])
 def attendance_api():
@@ -1503,7 +2065,8 @@ def attendance_api():
         for r in rows:
             it = dict(r)
             it['course'] = decrypt_text(it['course'])
-            it['percent'] = round((it['present'] / it['total'] * 100), 1) if it['total'] else 0
+            shield = calculate_bunk_shield(it['present'], it['total'])
+            it.update(shield)
             items.append(it)
         return jsonify(items)
     if request.method == 'POST':
@@ -1615,20 +2178,22 @@ def tasks_api():
     conn = get_db(user_id)
     c = conn.cursor()
     if request.method == 'GET':
-        rows = c.execute('SELECT * FROM tasks ORDER BY done ASC, date DESC').fetchall()
+        rows = c.execute('SELECT * FROM tasks ORDER BY done ASC, date ASC, priority DESC').fetchall()
         conn.close()
         items = []
         for r in rows:
             it = dict(r)
             it['title'] = decrypt_text(it['title'])
-            it['note']  = decrypt_text(it['note'])
+            it['note']  = decrypt_text(it['note']) if it.get('note') else ""
+            it['due_time'] = it.get('due_time') or '11:59 PM'
             items.append(it)
         return jsonify(items)
     if request.method == 'POST':
         d = request.json or {}
-        c.execute('INSERT INTO tasks (title, note, done, date, priority) VALUES (?,?,?,?,?)',
+        due_time = d.get('due_time', '11:59 PM')
+        c.execute('INSERT INTO tasks (title, note, done, date, priority, due_time) VALUES (?,?,?,?,?,?)',
                   (encrypt_text(d.get('title','')), encrypt_text(d.get('note','')),
-                   d.get('done',0), d.get('date', date.today().isoformat()), d.get('priority','medium')))
+                   d.get('done',0), d.get('date', date.today().isoformat()), d.get('priority','medium'), due_time))
         conn.commit(); conn.close()
         return jsonify({"ok": True})
     if request.method == 'DELETE':
@@ -1656,17 +2221,33 @@ def cgpa_api():
     c = conn.cursor()
     if request.method == 'GET':
         rows = c.execute('SELECT * FROM grades').fetchall()
-        conn.close()
+        prof = c.execute('SELECT * FROM academic_profile WHERE id=1').fetchone()
+        
+        base_cgpa = float(prof['baseline_cgpa']) if prof and prof['baseline_cgpa'] else 0.0
+        base_credits = float(prof['baseline_credits']) if prof and prof['baseline_credits'] else 0.0
+        current_sem = decrypt_text(prof['current_semester']) if prof and prof['current_semester'] else '6th Semester'
+
         items = []
-        tcredit = tpoints = 0.0
+        course_credits = course_points = 0.0
         for r in rows:
             it = dict(r)
             it['course'] = decrypt_text(it['course'])
             items.append(it)
-            tcredit += it['credit']
-            tpoints += it['grade'] * it['credit']
-        cgpa = round(tpoints / tcredit, 2) if tcredit else 0.0
-        return jsonify({"items": items, "cgpa": cgpa, "total_credit": tcredit})
+            course_credits += it['credit']
+            course_points += it['grade'] * it['credit']
+
+        total_credit = base_credits + course_credits
+        total_points = (base_credits * base_cgpa) + course_points
+        cgpa = round(total_points / total_credit, 2) if total_credit else 0.0
+        conn.close()
+        return jsonify({
+            "items": items,
+            "cgpa": cgpa,
+            "total_credit": total_credit,
+            "baseline_cgpa": base_cgpa,
+            "baseline_credits": base_credits,
+            "current_semester": current_sem
+        })
     if request.method == 'POST':
         d = request.json or {}
         c.execute('INSERT INTO grades (course, credit, grade) VALUES (?,?,?)',
@@ -1675,6 +2256,36 @@ def cgpa_api():
         return jsonify({"ok": True})
     if request.method == 'DELETE':
         c.execute('DELETE FROM grades WHERE id=?', ((request.json or {}).get('id'),))
+        conn.commit(); conn.close()
+        return jsonify({"ok": True})
+
+@app.route('/api/cgpa/baseline', methods=['GET', 'POST'])
+def cgpa_baseline():
+    user_id = get_current_user_id()
+    conn = get_db(user_id)
+    c = conn.cursor()
+    if request.method == 'GET':
+        prof = c.execute('SELECT * FROM academic_profile WHERE id=1').fetchone()
+        conn.close()
+        if not prof:
+            return jsonify({"current_semester": "6th Semester", "baseline_cgpa": 0.0, "baseline_credits": 0.0})
+        return jsonify({
+            "current_semester": decrypt_text(prof['current_semester']) if prof['current_semester'] else "6th Semester",
+            "baseline_cgpa": float(prof['baseline_cgpa'] or 0.0),
+            "baseline_credits": float(prof['baseline_credits'] or 0.0)
+        })
+    if request.method == 'POST':
+        d = request.json or {}
+        sem = d.get('current_semester', '6th Semester')
+        base_cgpa = float(d.get('baseline_cgpa', 0.0))
+        base_credits = float(d.get('baseline_credits', 0.0))
+        c.execute('''INSERT INTO academic_profile (id, current_semester, baseline_cgpa, baseline_credits)
+                     VALUES (1, ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                     current_semester=excluded.current_semester,
+                     baseline_cgpa=excluded.baseline_cgpa,
+                     baseline_credits=excluded.baseline_credits''',
+                  (encrypt_text(sem), base_cgpa, base_credits))
         conn.commit(); conn.close()
         return jsonify({"ok": True})
 
@@ -1715,33 +2326,797 @@ def summary():
     att_total   = sum(r['total']   for r in att)
     att_present = sum(r['present'] for r in att)
     att_percent = round((att_present / att_total * 100), 1) if att_total else 0
+    
+    att_courses = []
+    critical_att_count = 0
+    for a in att:
+        it_a = dict(a)
+        it_a['course'] = decrypt_text(it_a['course'])
+        shield = calculate_bunk_shield(it_a['present'], it_a['total'])
+        it_a.update(shield)
+        att_courses.append(it_a)
+        if shield['status'] in ['ZERO_BUFFER', 'DEFICIT']:
+            critical_att_count += 1
 
     budget   = c.execute('SELECT * FROM budget').fetchall()
     total_in  = sum(r['amount'] for r in budget if r['type'] == 'income')
     total_out = sum(r['amount'] for r in budget if r['type'] == 'expense')
     balance   = total_in - total_out
 
+    prof = c.execute('SELECT * FROM academic_profile WHERE id=1').fetchone()
+    base_cgpa = float(prof['baseline_cgpa']) if prof and prof['baseline_cgpa'] else 0.0
+    base_credits = float(prof['baseline_credits']) if prof and prof['baseline_credits'] else 0.0
+    current_sem = decrypt_text(prof['current_semester']) if prof and prof['current_semester'] else '6th Semester'
+
     grades  = c.execute('SELECT * FROM grades').fetchall()
-    tcredit = sum(r['credit'] for r in grades)
-    tpoints = sum(r['grade'] * r['credit'] for r in grades)
-    cgpa    = round(tpoints / tcredit, 2) if tcredit else 0
+    course_credits = sum(r['credit'] for r in grades)
+    course_points = sum(r['grade'] * r['credit'] for r in grades)
+    tcredit = base_credits + course_credits
+    tpoints = (base_credits * base_cgpa) + course_points
+    cgpa    = round(tpoints / tcredit, 2) if tcredit else 0.0
 
     tasks   = c.execute('SELECT * FROM tasks').fetchall()
     pending = sum(1 for r in tasks if r['done'] == 0)
     done_ct = sum(1 for r in tasks if r['done'] == 1)
+
+    today_str = date.today().isoformat()
+    focus_row = c.execute('SELECT SUM(total_minutes) as mins FROM focus_sessions WHERE date=?', (today_str,)).fetchone()
+    today_focus_mins = focus_row['mins'] if focus_row and focus_row['mins'] else 0
+
+    exam_rows = c.execute('SELECT * FROM exams WHERE date >= ? ORDER BY date ASC, time ASC LIMIT 5', (today_str,)).fetchall()
+    exams = []
+    for er in exam_rows:
+        e_dict = dict(er)
+        for k in ['title', 'course', 'type', 'notes']:
+            e_dict[k] = decrypt_text(e_dict.get(k, ''))
+        exams.append(e_dict)
 
     conn.close()
     return jsonify({
         "today": today,
         "today_routine": tr,
         "att_percent": att_percent,
+        "att_courses": att_courses,
+        "critical_att_count": critical_att_count,
         "total_in": total_in,
         "total_out": total_out,
         "balance": balance,
         "cgpa": cgpa,
+        "total_credit": tcredit,
+        "current_semester": current_sem,
+        "baseline_cgpa": base_cgpa,
+        "baseline_credits": base_credits,
         "pending_tasks": pending,
-        "done_tasks": done_ct
+        "done_tasks": done_ct,
+        "today_focus_mins": today_focus_mins,
+        "upcoming_exams": exams,
+        "exam_count": len(exams)
     })
+
+# ------------------------------------------------------------------
+# Focus Session Tracking API
+# ------------------------------------------------------------------
+@app.route('/api/focus/log', methods=['POST'])
+def focus_log():
+    """Save a completed focus session."""
+    user_id = get_current_user_id()
+    data = request.get_json() or {}
+    task_label    = data.get('task_label', '').strip()
+    cycles_planned = int(data.get('cycles_planned', 1))
+    cycles_done    = int(data.get('cycles_done', 1))
+    total_minutes  = cycles_done * 25
+    today          = date.today().isoformat()
+    started_at     = data.get('started_at', datetime.now().isoformat())
+
+    conn = get_db(user_id)
+    c = conn.cursor()
+    c.execute(
+        'INSERT INTO focus_sessions (task_label, cycles_planned, cycles_done, total_minutes, date, started_at) VALUES (?,?,?,?,?,?)',
+        (task_label, cycles_planned, cycles_done, total_minutes, today, started_at)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'minutes': total_minutes})
+
+
+@app.route('/api/focus/history', methods=['GET'])
+def focus_history():
+    """Return the last 30 focus sessions for the user."""
+    user_id = get_current_user_id()
+    conn = get_db(user_id)
+    c = conn.cursor()
+    rows = c.execute(
+        'SELECT * FROM focus_sessions ORDER BY id DESC LIMIT 30'
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/focus/stats', methods=['GET'])
+def focus_stats():
+    """Return aggregated focus stats for charts (weekly + monthly + task breakdown)."""
+    user_id = get_current_user_id()
+    conn = get_db(user_id)
+    c = conn.cursor()
+
+    today      = date.today()
+    week_start = (today - timedelta(days=today.weekday())).isoformat()   # Monday
+    month_start = today.replace(day=1).isoformat()
+
+    # Weekly: minutes per day (Mon-Sun)
+    week_rows = c.execute(
+        "SELECT date, SUM(total_minutes) as mins FROM focus_sessions WHERE date >= ? GROUP BY date ORDER BY date",
+        (week_start,)
+    ).fetchall()
+
+    # Monthly: minutes per day
+    month_rows = c.execute(
+        "SELECT date, SUM(total_minutes) as mins FROM focus_sessions WHERE date >= ? GROUP BY date ORDER BY date",
+        (month_start,)
+    ).fetchall()
+
+    # Task breakdown (all time, top 10 tasks)
+    task_rows = c.execute(
+        "SELECT task_label, SUM(total_minutes) as mins, COUNT(*) as sessions FROM focus_sessions WHERE task_label != '' GROUP BY task_label ORDER BY mins DESC LIMIT 10"
+    ).fetchall()
+
+    # Recent 15 sessions
+    recent_rows = c.execute(
+        'SELECT * FROM focus_sessions ORDER BY id DESC LIMIT 15'
+    ).fetchall()
+
+    # Total stats
+    totals = c.execute(
+        'SELECT COUNT(*) as total_sessions, SUM(total_minutes) as total_minutes, SUM(cycles_done) as total_cycles FROM focus_sessions'
+    ).fetchone()
+
+    conn.close()
+    return jsonify({
+        'weekly':    [dict(r) for r in week_rows],
+        'monthly':   [dict(r) for r in month_rows],
+        'tasks':     [dict(r) for r in task_rows],
+        'recent':    [dict(r) for r in recent_rows],
+        'totals':    dict(totals) if totals else {}
+    })
+
+
+@app.route('/api/focus/pa_briefing', methods=['POST'])
+def focus_pa_briefing():
+    """Generate dynamic, context-aware PA briefings & suggestions for focus sessions."""
+    user_id = get_current_user_id()
+    data = request.get_json() or {}
+    
+    stage = data.get('stage', 'start')  # start | in_progress | break_needed | cycle_done | session_complete | checkin | query
+    task_label = data.get('task_label', '').strip() or 'General Study Sprint'
+    cycles_done = int(data.get('cycles_done', 0))
+    cycles_planned = int(data.get('cycles_planned', 1))
+    elapsed_minutes = int(data.get('elapsed_minutes', 0))
+    user_query = data.get('query', '').strip()
+    
+    # 1. Fetch user academic context
+    conn = get_db(user_id)
+    c = conn.cursor()
+    
+    from datetime import timezone
+    bd_tz = timezone(timedelta(hours=6))
+    now = datetime.now(bd_tz)
+    days_map = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat', 6: 'Sun'}
+    today_day = days_map[now.weekday()]
+    today_date = date.today().isoformat()
+    
+    # Classes today
+    routine_rows = c.execute('SELECT * FROM routine WHERE day=? ORDER BY time', (today_day,)).fetchall()
+    classes = [f"{decrypt_text(r['course'])} at {r['time']}" for r in routine_rows] if routine_rows else ["No classes today"]
+    
+    # Pending tasks
+    task_rows = c.execute('SELECT * FROM tasks WHERE done=0 ORDER BY id DESC LIMIT 5').fetchall()
+    tasks_list = [f"{decrypt_text(t['title'])} ({t['priority']} priority)" for t in task_rows] if task_rows else ["No urgent tasks logged"]
+    
+    # Today's focus sessions
+    focus_today = c.execute('SELECT SUM(total_minutes) as mins, COUNT(*) as cnt FROM focus_sessions WHERE date=?', (today_date,)).fetchone()
+    focus_today_mins = focus_today['mins'] if focus_today and focus_today['mins'] else 0
+    
+    conn.close()
+
+    # Build prompt for LLM PA Focus Coach
+    pa_system_prompt = (
+        "You are এক্কু (EKKHU), the user's AI Personal Assistant (PA) and smart Focus Coach. "
+        "Your style: warm, classy, intelligent Bengali friend + executive personal assistant ('as a friend but professionally'). "
+        "You speak in 100% natural, colloquial Bengali (বাংলা) / Banglish. "
+        "Give actionable, empathetic, sharp advice. "
+        "Return ONLY a JSON object with this exact schema:\n"
+        "{\n"
+        '  "message": "2-3 short, inspiring or advising sentences in natural Bengali/Banglish",\n'
+        '  "tts_text": "Phonetically optimized Bengali text for TTS without markdown/emojis",\n'
+        '  "emotion": "hopeful | neutral | happy | tired",\n'
+        '  "pa_suggestions": ["Action chip 1 (short)", "Action chip 2 (short)", "Action chip 3 (short)"],\n'
+        '  "action_hint": "focus | break | review | task"\n'
+        "}"
+    )
+
+    user_prompt_content = f"""=== FOCUS TELEMETRY & CONTEXT ===
+Stage: {stage}
+Target Task: {task_label}
+Progress: {cycles_done}/{cycles_planned} cycles completed ({elapsed_minutes} mins elapsed)
+Today's Date/Time: {now.strftime('%A, %I:%M %p')}
+Today's Scheduled Classes: {', '.join(classes)}
+Pending Priorities: {', '.join(tasks_list)}
+Today's Focus Logged So Far: {focus_today_mins} mins
+User's Question / Note (if any): {user_query if user_query else 'None'}
+
+Specific Stage Goal:
+- If stage is 'start': Give a crisp kickoff briefing, acknowledge the target '{task_label}', set clear focus momentum and remove distractions.
+- If stage is 'break_needed' or 'cycle_done': Strongly and warmly advise taking a 5-minute break (hydration, 20-20-20 eye rest rule, posture stretch). Remind them that brief rests preserve cognitive performance.
+- If stage is 'session_complete': Congratulate them on crushing the focus sprint, summarize the achievement, and suggest what to tackle next from their routine/tasks.
+- If stage is 'checkin' or 'query': Answer their question directly with sharp PA insight, prioritizing their schedule and health.
+"""
+
+    messages = [
+        {"role": "system", "content": pa_system_prompt},
+        {"role": "user", "content": user_prompt_content}
+    ]
+
+    try:
+        raw_res = call_llm(messages)
+        # Parse JSON
+        clean_res = raw_res.strip()
+        if clean_res.startswith('```json'): clean_res = clean_res[7:]
+        elif clean_res.startswith('```'): clean_res = clean_res[3:]
+        if clean_res.endswith('```'): clean_res = clean_res[:-3]
+        clean_res = clean_res.strip()
+        
+        parsed = json.loads(clean_res)
+        return jsonify({
+            "ok": True,
+            "message": parsed.get("message", "ফোকাস চালিয়ে যাও দোস্ত, আমি পাশে আছি।"),
+            "tts_text": parsed.get("tts_text", parsed.get("message", "ফোকাস চালিয়ে যাও দোস্ত")),
+            "emotion": parsed.get("emotion", "hopeful"),
+            "pa_suggestions": parsed.get("pa_suggestions", [
+                "💧 ৫ মিনিটের পানি ও স্ট্রেচ ব্রেক",
+                "🎯 পরবর্তী প্রায়োরিটি টাস্ক শুরু করো",
+                "📋 আজকের ক্লাসের নোট রিভিশন"
+            ]),
+            "action_hint": parsed.get("action_hint", "focus")
+        })
+    except Exception as e:
+        print(f"[Focus PA] LLM call fallback due to: {e}")
+        # Smart intelligent fallback based on stage
+        if stage in ['break_needed', 'cycle_done']:
+            fallback_msg = f"চমৎকার! {task_label}-এর একটা সাইকেল শেষ। এখন ৫ মিনিটের একটা ছোট ব্রেক নাও—চোখে পানি দাও আর একটু হেঁটে এসো।"
+            tts_fallback = f"চমৎকার! {task_label} এর একটা সাইকেল শেষ। এখন পাঁচ মিনিটের একটা ছোট ব্রেক নাও। চোখে পানি দাও আর একটু হেঁটে এসো।"
+            suggestions = ["💧 পানি খাও & চোখ রেস্ট দাও", "🚶‍♂️ ২ মিনিট পায়চারি করো", "⚡ അടുത്ത সাইকেলের প্রস্তুতি"]
+            hint = "break"
+            emo = "happy"
+        elif stage == 'start':
+            fallback_msg = f"চলো {task_label} শুরু করা যাক! ফোন দূরে রেখে একটানা ২৫ মিনিট ফুল ফোকাস দাও। আমি মনিটর করছি।"
+            tts_fallback = f"চলো {task_label} শুরু করা যাক! ফোন দূরে রেখে একটানা পঁচিশ মিনিট ফুল ফোকাস দাও।"
+            suggestions = ["🔕 নোটিফিকেশন মিউট করো", "🎯 মূল সমস্যাটি আগে ধরো", "⏱️ ২৫ মিনিট ডিপ ওয়ার্ক"]
+            hint = "focus"
+            emo = "hopeful"
+        elif stage == 'session_complete':
+            fallback_msg = f"অসাধারণ কাজ! সব সাইকেল সফলভাবে সম্পন্ন হয়েছে ({cycles_done * 25} মিনিট ফোকাস)। আজকের জন্য গ্রেট প্রগ্রেস!"
+            tts_fallback = f"অসাধারণ কাজ! সব সাইকেল সফলভাবে সম্পন্ন হয়েছে। আজকের জন্য গ্রেট প্রগ্রেস!"
+            suggestions = ["📝 টাস্ক ডান মার্ক করো", "☕ দীর্ঘ রিফ্রেশমেন্ট ব্রেক", "📅 রুটিনের পরবর্তী আইটেম দেখো"]
+            hint = "review"
+            emo = "happy"
+        else:
+            fallback_msg = f"সব ঠিকঠাক চলছে তো? কোনো টাস্ক বুঝতে প্রবলেম হলে বা প্রায়োরিটি ঠিক করতে চাইলে আমাকে বলো।"
+            tts_fallback = "সব ঠিকঠাক চলছে তো? কোনো টাস্ক বুঝতে প্রবলেম হলে আমাকে বলো।"
+            suggestions = ["📋 প্রায়োরিটি টাস্ক সাজাও", "💧 ৫ মিনিট ব্রেক নাও", "⚡ কুইক রিভিশন দাও"]
+            hint = "task"
+            emo = "neutral"
+
+        return jsonify({
+            "ok": True,
+            "message": fallback_msg,
+            "tts_text": tts_fallback,
+            "emotion": emo,
+            "pa_suggestions": suggestions,
+            "action_hint": hint
+        })
+
+
+@app.route('/api/focus/ai_suggest', methods=['GET', 'POST'])
+def focus_ai_suggest():
+    """Return top AI recommended focus activities based on today's routine and pending tasks."""
+    user_id = get_current_user_id()
+    conn = get_db(user_id)
+    c = conn.cursor()
+    
+    from datetime import timezone
+    bd_tz = timezone(timedelta(hours=6))
+    now = datetime.now(bd_tz)
+    days_map = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat', 6: 'Sun'}
+    today_day = days_map[now.weekday()]
+    
+    # Routine & tasks
+    routine_rows = c.execute('SELECT * FROM routine WHERE day=? ORDER BY time', (today_day,)).fetchall()
+    classes = [f"{decrypt_text(r['course'])} ({r['time']})" for r in routine_rows]
+    
+    task_rows = c.execute('SELECT * FROM tasks WHERE done=0 ORDER BY CASE priority WHEN "high" THEN 1 WHEN "medium" THEN 2 ELSE 3 END LIMIT 8').fetchall()
+    tasks = [{"id": t['id'], "title": decrypt_text(t['title']), "priority": t['priority'], "date": t['date']} for t in task_rows]
+    
+    conn.close()
+
+    pa_prompt = (
+        "You are এক্কু (EKKHU), an expert AI Personal Assistant and academic strategist. "
+        "Analyze the user's current day schedule and task list. Suggest the TOP 3 most realistic, impactful focus sessions they should do right now.\n"
+        "STRICT RULES:\n"
+        "1. NO HALLUCINATION: DO NOT invent fake upcoming presentations, exams, or deadlines that are not explicitly listed in Pending Tasks or Today's Classes.\n"
+        "2. If Pending Tasks list has items, base suggestions on those real tasks.\n"
+        "3. If Pending Tasks and Classes are empty/none, suggest general productive focus areas (e.g. 'দৈনিক লক্ষ্য ও পরিকল্পনা নির্ধারণ', 'কোর সাবজেক্ট রিভিশন ও প্র্যাকটিস', 'প্রোগ্রামিং বা স্কিল ডেভেলপমেন্ট') and explain in the reason that because there are no pending deadlines, self-study/skill building is the best use of time.\n"
+        "4. Write in 100% natural, correct Bengali (বাংলা) spelling. NEVER mix English letters inside Bengali words (e.g. write 'আগামীকালের', NEVER 'আগamীকালের').\n"
+        "Return ONLY a JSON array of objects:\n"
+        "[\n"
+        "  {\n"
+        '    "title": "Task or study activity title",\n'
+        '    "cycles": 1 or 2,\n'
+        '    "duration_label": "25m" or "50m",\n'
+        '    "reason": "Short 1-sentence realistic strategic rationale in Bengali",\n'
+        '    "badge": "High Priority" | "Class Prep" | "Skill Building" | "Daily Routine"\n'
+        "  }\n"
+        "]"
+    )
+
+    tasks_context = json.dumps(tasks, ensure_ascii=False) if tasks else "None (No pending tasks logged in database)"
+    classes_context = ", ".join(classes) if classes else "None (No classes scheduled for today)"
+
+    user_msg = f"Current Time: {now.strftime('%I:%M %p')}\nToday's Scheduled Classes: {classes_context}\nPending Tasks in DB: {tasks_context}"
+    messages = [
+        {"role": "system", "content": pa_prompt},
+        {"role": "user", "content": user_msg}
+    ]
+
+    try:
+        raw_res = call_llm(messages)
+        clean = raw_res.strip()
+        if clean.startswith('```json'): clean = clean[7:]
+        elif clean.startswith('```'): clean = clean[3:]
+        if clean.endswith('```'): clean = clean[:-3]
+        parsed = json.loads(clean.strip())
+        if isinstance(parsed, list) and len(parsed) > 0:
+            return jsonify({"ok": True, "suggestions": parsed})
+    except Exception as e:
+        print(f"[Focus AI Suggest] Fallback due to: {e}")
+
+    # Fallback suggestions if LLM is unavailable
+    fallback_items = []
+    if tasks:
+        for t in tasks[:2]:
+            fallback_items.append({
+                "title": t['title'],
+                "cycles": 1 if t['priority'] != 'high' else 2,
+                "duration_label": "25m" if t['priority'] != 'high' else "50m",
+                "reason": f"অগ্রাধিকার তালিকায় থাকা {t['priority']} প্রায়োরিটি টাস্ক।",
+                "badge": "Urgent Priority" if t['priority'] == 'high' else "Pending Task"
+            })
+    if classes:
+        fallback_items.append({
+            "title": f"{classes[0]} প্রি-ক্লাস রিভিশন",
+            "cycles": 1,
+            "duration_label": "25m",
+            "reason": "আজকের ক্লাসের মূল টপিকগুলো একবার চোখ বুলিয়ে নেওয়া।",
+            "badge": "Class Prep"
+        })
+    if not fallback_items:
+        fallback_items = [
+            {"title": "দৈনিক স্টাডি ও নোটস অর্গানাইজেশন", "cycles": 1, "duration_label": "25m", "reason": "সারাদিনের পড়ার লক্ষ্য ও রিসোর্স ঠিক করে নেওয়া।", "badge": "Deep Focus"},
+            {"title": "কোর সাবজেক্ট প্রবলেম সলভিং", "cycles": 2, "duration_label": "50m", "reason": "কঠিন কনসেপ্ট বা অ্যাসাইনমেন্টের ওপর গভীর মনোযোগ।", "badge": "Core Academic"}
+        ]
+
+    return jsonify({"ok": True, "suggestions": fallback_items})
+
+
+# ------------------------------------------------------------------
+# Routes — Exams & Quiz Tracking
+# ------------------------------------------------------------------
+@app.route('/api/exams', methods=['GET', 'POST', 'DELETE'])
+def exams_api():
+    """CRUD API for upcoming exams, quizzes, CTs, and project presentations."""
+    user_id = get_current_user_id()
+    conn = get_db(user_id)
+    c = conn.cursor()
+    if request.method == 'GET':
+        rows = c.execute('SELECT * FROM exams ORDER BY date ASC, time ASC').fetchall()
+        conn.close()
+        items = []
+        for r in rows:
+            it = dict(r)
+            for k in ['title', 'course', 'type', 'notes']:
+                it[k] = decrypt_text(it.get(k, ''))
+            items.append(it)
+        return jsonify(items)
+    if request.method == 'POST':
+        d = request.json or {}
+        c.execute('INSERT INTO exams (title, course, type, date, time, notes) VALUES (?,?,?,?,?,?)',
+                  (encrypt_text(d.get('title', 'Exam')), encrypt_text(d.get('course', '')),
+                   encrypt_text(d.get('type', 'Quiz')), d.get('date', date.today().isoformat()),
+                   d.get('time', '10:00 AM'), encrypt_text(d.get('notes', ''))))
+        conn.commit(); conn.close()
+        return jsonify({"ok": True})
+    if request.method == 'DELETE':
+        d = request.json or {}
+        c.execute('DELETE FROM exams WHERE id=?', (d.get('id'),))
+        conn.commit(); conn.close()
+        return jsonify({"ok": True})
+
+@app.route('/api/exam/survival_plan', methods=['POST'])
+def exam_survival_plan():
+    """Generate a high-stakes 72-hour tactical battle plan for an upcoming exam."""
+    user_id = get_current_user_id()
+    data = request.json or {}
+    course = data.get('course', 'Selected Course')
+    title = data.get('title', 'Exam')
+    hours_left = int(data.get('hours_left', 48))
+    
+    prompt = (
+        "You are an elite academic performance coach specialized in high-stakes university exam preparation. "
+        "Create an actionable, tactical 3-Phase Countdown Battle Plan for a university student preparing for an exam.\n"
+        f"Target Exam: {course} - {title}\n"
+        f"Time Remaining: {hours_left} hours\n"
+        "OUTPUT PURE STRICT JSON with this exact structure:\n"
+        "{\n"
+        '  "course": "' + course + '",\n'
+        '  "title": "' + title + '",\n'
+        '  "hours_left": ' + str(hours_left) + ',\n'
+        '  "headline": "Short punchy tactical battle title (e.g. 48h Tactical Sprint: Operation A+)",\n'
+        '  "strategy_summary": "2-sentence high-impact execution strategy in Bengali/Banglish",\n'
+        '  "phase_1": {\n'
+        '    "name": "Phase 1: High-Yield Core Concept Sprint",\n'
+        '    "duration_hours": ' + str(max(4, int(hours_left * 0.5))) + ',\n'
+        '    "focus": "High-yield lecture slides, definitions, and core theorems",\n'
+        '    "tasks": ["Task 1", "Task 2", "Task 3"]\n'
+        '  },\n'
+        '  "phase_2": {\n'
+        '    "name": "Phase 2: Past Paper & Problem-Solving Drills",\n'
+        '    "duration_hours": ' + str(max(2, int(hours_left * 0.35))) + ',\n'
+        '    "focus": "Previous year exam questions, tricky code tracing, numericals",\n'
+        '    "tasks": ["Task 1", "Task 2", "Task 3"]\n'
+        '  },\n'
+        '  "phase_3": {\n'
+        '    "name": "Phase 3: Formula & Rapid Recall Lock-In",\n'
+        '    "duration_hours": ' + str(max(1, int(hours_left * 0.15))) + ',\n'
+        '    "focus": "Active recall flashcards, formula sheet lock-in, mental dry run",\n'
+        '    "tasks": ["Task 1", "Task 2"]\n'
+        '  }\n'
+        "}"
+    )
+
+    messages = [
+        {"role": "system", "content": "You are a master academic strategist. Output strict JSON only."},
+        {"role": "user", "content": prompt}
+    ]
+    try:
+        resp_text = call_llm(messages)
+        parsed = safe_parse_json(resp_text)
+        if parsed:
+            parsed["ok"] = True
+            return jsonify(parsed)
+    except Exception as e:
+        print(f"[SurvivalPlan] Error: {e}")
+
+    # High-quality fallback
+    p1_dur = max(4, int(hours_left * 0.5))
+    p2_dur = max(2, int(hours_left * 0.35))
+    p3_dur = max(1, hours_left - p1_dur - p2_dur)
+    
+    return jsonify({
+        "ok": True,
+        "course": course,
+        "title": title,
+        "hours_left": hours_left,
+        "headline": f"{hours_left}h Tactical Sprint: Operation {course} Mastery",
+        "strategy_summary": f"সব স্লাইড একবারে না পড়ে আগে ৮০% মার্কস বহন করে এমন কোর চ্যাপ্টারগুলো শেষ করো। তারপর বিগত বছরের প্রশ্নে হাত দাও।",
+        "phase_1": {
+            "name": "Phase 1: High-Yield Core Concept Sprint",
+            "duration_hours": p1_dur,
+            "focus": "High-yield lecture slides, definitions, and core theorems",
+            "tasks": [
+                f"Identify Top 3 most weighted topics in {course}",
+                "Review lecture slide summaries & make 1-page formula sheet",
+                "Lock in key definitions and fundamental concepts"
+            ]
+        },
+        "phase_2": {
+            "name": "Phase 2: Past Paper & Problem-Solving Drills",
+            "duration_hours": p2_dur,
+            "focus": "Previous year exam questions and practice problems",
+            "tasks": [
+                f"Solve 2 previous semester {course} midterm/quiz papers",
+                "Identify repeating question patterns & tricky edge cases",
+                "Run timed 45-minute problem-solving sprint"
+            ]
+        },
+        "phase_3": {
+            "name": "Phase 3: Formula & Rapid Recall Lock-In",
+            "duration_hours": p3_dur,
+            "focus": "Active recall flashcards and formula lock-in",
+            "tasks": [
+                "Rapid flip card review of all formulas & algorithms",
+                "Mental dry run of exam questions without looking at notes",
+                "Ensure at least 6 hours of solid sleep before exam"
+            ]
+        }
+    })
+
+
+# ------------------------------------------------------------------
+# Routes — Executive Daily Briefing (Morning / Night / Day PA Hub)
+# ------------------------------------------------------------------
+@app.route('/api/pa/daily_briefing', methods=['GET'])
+def pa_daily_briefing():
+    """Return an executive, time-of-day briefing with voice readout and academic diagnostic."""
+    user_id = get_current_user_id()
+    conn = get_db(user_id)
+    c = conn.cursor()
+    
+    from datetime import timezone
+    bd_tz = timezone(timedelta(hours=6))
+    now = datetime.now(bd_tz)
+    hour = now.hour
+    
+    if 5 <= hour < 12:
+        period = "morning"
+        period_title = "Morning Executive Kickoff"
+    elif 12 <= hour < 17:
+        period = "afternoon"
+        period_title = "Midday Momentum Check"
+    elif 17 <= hour < 21:
+        period = "evening"
+        period_title = "Evening Strategy Brief"
+    else:
+        period = "night"
+        period_title = "Nightly Debrief & Wrap-up"
+
+    days_map = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat', 6: 'Sun'}
+    today_day = days_map[now.weekday()]
+    today_str = date.today().isoformat()
+
+    # Classes today
+    routine_rows = c.execute('SELECT * FROM routine WHERE day=? ORDER BY time', (today_day,)).fetchall()
+    classes = [f"{decrypt_text(r['course'])} ({r['time']})" for r in routine_rows]
+    
+    # Priority tasks
+    task_rows = c.execute('SELECT * FROM tasks WHERE done=0 ORDER BY CASE priority WHEN "high" THEN 1 WHEN "medium" THEN 2 ELSE 3 END LIMIT 5').fetchall()
+    tasks = [decrypt_text(t['title']) for t in task_rows]
+
+    # Completed tasks today
+    done_tasks = c.execute('SELECT COUNT(*) as cnt FROM tasks WHERE done=1').fetchone()['cnt']
+
+    # Focus minutes today
+    focus_row = c.execute('SELECT SUM(total_minutes) as mins FROM focus_sessions WHERE date=?', (today_str,)).fetchone()
+    focus_mins = focus_row['mins'] if focus_row and focus_row['mins'] else 0
+
+    # Upcoming exams in next 7 days
+    future_7d = (date.today() + timedelta(days=7)).isoformat()
+    exam_rows = c.execute('SELECT * FROM exams WHERE date >= ? AND date <= ? ORDER BY date ASC', (today_str, future_7d)).fetchall()
+    exams = [f"{decrypt_text(e['title'])} on {e['date']}" for e in exam_rows]
+
+    conn.close()
+
+    pa_prompt = (
+        "You are এক্কু (EKKHU), an elite AI Executive Personal Assistant. "
+        f"Generate a crisp, empowering {period.upper()} executive briefing for the user in 100% natural, classy Bengali (বাংলা).\n"
+        "Instructions:\n"
+        "- 2-3 high-impact sentences summarizing the top priorities, class schedule, or celebration of today's progress.\n"
+        "- If morning: Energize and highlight today's first class or top task.\n"
+        "- If night: Praise completed work, summarize focus time, advise restful sleep.\n"
+        "- Return ONLY a JSON object:\n"
+        "{\n"
+        '  "message": "Executive briefing in Bengali",\n'
+        '  "tts_text": "Phonetically optimized text for TTS without emojis or markdown",\n'
+        '  "emotion": "hopeful | happy | neutral",\n'
+        '  "highlights": ["Key highlight 1", "Key highlight 2"],\n'
+        '  "action_chips": ["Action 1", "Action 2"]\n'
+        "}"
+    )
+
+    user_context_msg = f"""Period: {period.upper()} ({now.strftime('%I:%M %p')})
+Today's Scheduled Classes: {classes if classes else 'None scheduled'}
+Pending Priority Tasks: {tasks if tasks else 'None pending'}
+Today's Focus Time Logged: {focus_mins} mins
+Completed Tasks: {done_tasks}
+Upcoming Exams (Next 7 Days): {exams if exams else 'None in next 7 days'}"""
+
+    try:
+        raw_res = call_llm([
+            {"role": "system", "content": pa_prompt},
+            {"role": "user", "content": user_context_msg}
+        ])
+        clean = raw_res.strip()
+        if clean.startswith('```json'): clean = clean[7:]
+        elif clean.startswith('```'): clean = clean[3:]
+        if clean.endswith('```'): clean = clean[:-3]
+        parsed = json.loads(clean.strip())
+        return jsonify({
+            "ok": True,
+            "period": period,
+            "title": period_title,
+            "message": parsed.get("message", "আজকের দিনটি গুছিয়ে শুরু করার জন্য প্রস্তুত!"),
+            "tts_text": parsed.get("tts_text", parsed.get("message", "")),
+            "emotion": parsed.get("emotion", "hopeful"),
+            "highlights": parsed.get("highlights", [
+                f"{len(classes)} Classes Today" if classes else "No Classes Today",
+                f"{focus_mins}m Focused Today"
+            ]),
+            "action_chips": parsed.get("action_chips", ["Start Focus Sprint", "Review Tasks"])
+        })
+    except Exception as e:
+        print(f"[PA Briefing] Fallback due to: {e}")
+
+    # Intelligent Fallback Briefing
+    if period == "morning":
+        msg = f"শুভ সকাল! আজকের দিনে {len(classes)}টি ক্লাস এবং {len(tasks)}টি গুরুত্বপূর্ণ টাস্ক রয়েছে। চলুন ফোকাস দিয়ে দিনটি জয় করা যাক!"
+        tts = "Shuvo sokal! Ajker dine class ebong guruttopurno task ache. Cholo fokas diye dinta joy kora jak!"
+    elif period == "night":
+        msg = f"আজকের দিনে মোট {focus_mins} মিনিট ডিপ ফোকাস সম্পন্ন হয়েছে। এবার বিশ্রাম নিয়ে আগামীকালের জন্য প্রস্তুত হওয়ার সময়।"
+        tts = f"Ajker dine mot {focus_mins} minute deep focus shompurno hoyeche. Ebar bishram neoar shomoy."
+    else:
+        msg = f"দিনের অগ্রগতি চমৎকার চলছে! পরবর্তী গুরুত্বপূর্ণ লক্ষ্যগুলোতে নজর দেওয়ার এখনই সেরা সময়।"
+        tts = "Diner ogrogoti chomotkar cholche! Poroborti guruttopurno lokkhe nojor deoar shomoy."
+
+    return jsonify({
+        "ok": True,
+        "period": period,
+        "title": period_title,
+        "message": msg,
+        "tts_text": tts,
+        "emotion": "hopeful",
+        "highlights": [f"{len(classes)} Class(es)", f"{focus_mins}m Focus Logged"],
+        "action_chips": ["Start Focus Sprint", "Check Routine"]
+    })
+
+
+# ------------------------------------------------------------------
+# Routes — AI Lecture Summarizer & Active Recall Flashcards
+# ------------------------------------------------------------------
+@app.route('/api/study/generate_flashcards', methods=['POST'])
+def generate_flashcards_api():
+    """Generate 5-minute study summary and active recall flashcards from topic/lecture text."""
+    data = request.get_json() or {}
+    topic = data.get('topic', '').strip() or 'Academic Topic'
+    content = data.get('content', '').strip()
+    
+    if not content:
+        content = f"Key concepts, fundamental formulas, and exam questions for: {topic}"
+
+    prompt = (
+        "You are an expert academic tutor and cognitive scientist. "
+        "Analyze the provided academic topic and study material. "
+        "Create an ultra-high-yield 5-minute summary + 4 active recall flashcards for deep focus revision.\n"
+        "Return ONLY a JSON object:\n"
+        "{\n"
+        '  "summary": "3-4 sentence high-density concept summary in natural Bengali/Banglish",\n'
+        '  "flashcards": [\n'
+        '    {\n'
+        '      "question": "Clear concept or challenge question in Bengali/English",\n'
+        '      "answer": "Concise, precise explanation & core takeaways",\n'
+        '      "tag": "Concept" | "Formula" | "Exam Prep"\n'
+        '    }\n'
+        '  ]\n'
+        "}"
+    )
+
+    try:
+        raw_res = call_llm([
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"Topic: {topic}\nMaterial/Notes: {content[:3000]}"}
+        ])
+        clean = raw_res.strip()
+        if clean.startswith('```json'): clean = clean[7:]
+        elif clean.startswith('```'): clean = clean[3:]
+        if clean.endswith('```'): clean = clean[:-3]
+        parsed = json.loads(clean.strip())
+        return jsonify({"ok": True, "data": parsed})
+    except Exception as e:
+        print(f"[Flashcards] Error: {e}")
+        return jsonify({
+            "ok": True,
+            "data": {
+                "summary": f"{topic}-এর মূল কনসেপ্ট ও ফান্ডামেন্টালগুলো রিভিশন দেওয়ার জন্য প্রস্তুত।",
+                "flashcards": [
+                    {"question": f"{topic}-এর মূল সংজ্ঞা ও প্রয়োজনীয়তা কি?", "answer": "কোর কনসেপ্ট ও রিয়েল-ওয়ার্ল্ড অ্যাপ্লিকেশনের বিস্তারিত পয়েন্ট।", "tag": "Concept"},
+                    {"question": "পরীক্ষার জন্য সবচেয়ে গুরুত্বপূর্ণ ফর্মুলা বা অ্যালগরিদম কি?", "answer": "প্রবলেম সলভিং স্টেপস এবং টাইম কমপ্লেক্সিটি।", "tag": "Exam Prep"},
+                    {"question": "কমন ভুল বা পিটফল কি কি হতে পারে?", "answer": "এজ কেস এবং কনসেপচুয়াল বাউন্ডারিগুলো সতর্কতার সাথে হ্যান্ডেল করা।", "tag": "Formula"}
+                ]
+            }
+        })
+
+
+# ------------------------------------------------------------------
+# Routes — 1-Click iCalendar (.ics) Routine & Deadlines Exporter
+# ------------------------------------------------------------------
+@app.route('/api/routine/export_ics', methods=['GET'])
+def export_routine_ics():
+    """Generate and download RFC 5545 standard .ics file for Google Calendar & Apple Calendar."""
+    from flask import Response
+    user_id = get_current_user_id()
+    conn = get_db(user_id)
+    c = conn.cursor()
+    
+    routine_rows = c.execute('SELECT * FROM routine').fetchall()
+    exam_rows = c.execute('SELECT * FROM exams').fetchall()
+    conn.close()
+
+    day_ics_map = {'Mon': 'MO', 'Tue': 'TU', 'Wed': 'WE', 'Thu': 'TH', 'Fri': 'FR', 'Sat': 'SA', 'Sun': 'SU'}
+    
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//EKKHU//Academic OS 2.5//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:EKKHU Academic Schedule",
+        "X-WR-TIMEZONE:Asia/Dhaka"
+    ]
+
+    now_utc = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+
+    # Add Classes as recurring weekly events
+    for idx, r in enumerate(routine_rows):
+        course = decrypt_text(r['course'])
+        room = decrypt_text(r['room'])
+        prof = decrypt_text(r['prof'])
+        day = r['day']
+        byday = day_ics_map.get(day, 'MO')
+        
+        # Parse class time (e.g. "10:00 AM", "01:30 PM")
+        time_str = r['time']
+        try:
+            pt = datetime.strptime(time_str.strip(), "%I:%M %p")
+            hh = f"{pt.hour:02d}"
+            mm = f"{pt.minute:02d}"
+        except Exception:
+            hh, mm = "10", "00"
+
+        # Reference start date: this week's matching day
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:ekkhu-class-{r['id']}-{now_utc}",
+            f"DTSTAMP:{now_utc}",
+            f"DTSTART:20260824T{hh}{mm}00",
+            f"DTEND:20260824T{int(hh)+1:02d}{mm}00",
+            f"RRULE:FREQ=WEEKLY;BYDAY={byday}",
+            f"SUMMARY:{course} Class",
+            f"LOCATION:{room}",
+            f"DESCRIPTION:Instructor: {prof} • Managed via EKKHU OS",
+            "STATUS:CONFIRMED",
+            "END:VEVENT"
+        ])
+
+    # Add Upcoming Exams / Deadlines
+    for e in exam_rows:
+        title = decrypt_text(e['title'])
+        course = decrypt_text(e['course'])
+        etype = decrypt_text(e['type'])
+        notes = decrypt_text(e['notes'])
+        date_str = e['date'].replace('-', '')
+        
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:ekkhu-exam-{e['id']}-{now_utc}",
+            f"DTSTAMP:{now_utc}",
+            f"DTSTART;VALUE=DATE:{date_str}",
+            f"DTEND;VALUE=DATE:{date_str}",
+            f"SUMMARY:[{etype}] {course}: {title}",
+            f"DESCRIPTION:{notes} • Tracked with EKKHU Executive OS",
+            "BEGIN:VALARM",
+            "TRIGGER:-PT24H",
+            "ACTION:DISPLAY",
+            f"DESCRIPTION:Upcoming {etype}: {course} tomorrow!",
+            "END:VALARM",
+            "END:VEVENT"
+        ])
+
+    lines.append("END:VCALENDAR")
+    ics_body = "\r\n".join(lines)
+
+    return Response(
+        ics_body,
+        mimetype="text/calendar",
+        headers={"Content-Disposition": "attachment; filename=ekkhu_academic_schedule.ics"}
+    )
+
 
 # ------------------------------------------------------------------
 @app.after_request

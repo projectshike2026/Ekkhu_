@@ -8,6 +8,7 @@ venv/
 node_modules/
 dist/
 users.json
+sessions.json
 *.wav
 *.mp3
 voice_demo.*
