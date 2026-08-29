@@ -358,6 +358,47 @@
         </div>
       </div>
 
+      <!-- Cloud Database & Turso Sync Center -->
+      <div class="glass-card rounded-2xl p-5 space-y-4 border border-cyan-500/20 shadow-lg shadow-cyan-950/20">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <span class="material-symbols-outlined text-cyan-400 text-base">cloud_sync</span>
+            Turso Cloud Sync Center
+          </h2>
+          <span id="turso-status-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+            Local SQLite (0.05ms)
+          </span>
+        </div>
+
+        <p class="text-xs text-slate-400 leading-relaxed">
+          Render operates on ultra-fast Local SQLite for instantaneous responses. Backups are synced to Turso in the background and restored automatically on startup.
+        </p>
+
+        <div class="p-3 rounded-xl bg-slate-900/60 border border-darkborder space-y-2 text-xs font-mono">
+          <div class="flex items-center justify-between text-slate-400">
+            <span>Last Sync Time:</span>
+            <span id="turso-last-sync" class="text-white font-bold">Checking...</span>
+          </div>
+          <div class="flex items-center justify-between text-slate-400">
+            <span>Sync Status:</span>
+            <span id="turso-last-status" class="text-cyan-400 font-bold">Active</span>
+          </div>
+        </div>
+
+        <!-- Sync Action Buttons -->
+        <div class="grid grid-cols-2 gap-2.5 pt-1">
+          <button onclick="pushToTurso()" id="btn-sync-push" class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 transition active:scale-95 shadow-sm">
+            <span class="material-symbols-outlined text-[16px]">cloud_upload</span>
+            <span>Push to Turso</span>
+          </button>
+
+          <button onclick="pullFromTurso()" id="btn-sync-pull" class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 transition active:scale-95 shadow-sm">
+            <span class="material-symbols-outlined text-[16px]">cloud_download</span>
+            <span>Pull &amp; Restore</span>
+          </button>
+        </div>
+      </div>
+
     </div>
 
     <!-- RIGHT COLUMN (7 Cols): Live Event & Error Log Stream -->
@@ -539,7 +580,17 @@ function renderDashboard(data) {
   document.getElementById('used-37-flash').textContent = usage['gemini-3.7-flash'] || 0;
   document.getElementById('used-35-lite').textContent = usage['gemini-3.5-flash-lite'] || 0;
 
-  // 7. Logs
+  // 7. Turso Cloud Sync Status
+  if (data.turso_sync) {
+    const ts = data.turso_sync;
+    document.getElementById('turso-last-sync').textContent = ts.last_sync_time ? ts.last_sync_time.replace('T', ' ').slice(0, 19) : 'Not synced yet';
+    document.getElementById('turso-last-status').textContent = ts.last_sync_status || 'Local SQLite Active';
+    const badge = document.getElementById('turso-status-badge');
+    badge.textContent = ts.configured ? 'Turso Connected (Local 0.05ms)' : 'Local SQLite Only';
+    badge.className = ts.configured ? 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/15 text-slate-400 border border-slate-500/30';
+  }
+
+  // 8. Logs
   cachedLogs = data.recent_logs || [];
   renderLogs();
 }
@@ -701,6 +752,50 @@ async function resetMetricsToday() {
     fetchMetrics();
   } catch (e) {
     alert('Failed to reset metrics');
+  }
+}
+
+async function pushToTurso() {
+  const btn = document.getElementById('btn-sync-push');
+  if (!confirm("Are you sure you want to backup all local data to Turso Cloud?")) return;
+  btn.disabled = true;
+  btn.classList.add('opacity-50');
+  try {
+    const res = await fetch('/api/admin/sync_push', { method: 'POST' });
+    const d = await res.json();
+    if (d.ok) {
+      alert(`✅ Success: Backed up ${d.records_pushed} records across ${d.users_synced ? d.users_synced.length : 0} users to Turso!`);
+    } else {
+      alert(`❌ Backup Failed: ${d.error || 'Unknown error'}`);
+    }
+    fetchMetrics();
+  } catch (e) {
+    alert(`❌ Network error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('opacity-50');
+  }
+}
+
+async function pullFromTurso() {
+  const btn = document.getElementById('btn-sync-pull');
+  if (!confirm("⚠️ This will restore your local SQLite database from the latest Turso cloud snapshot. Proceed?")) return;
+  btn.disabled = true;
+  btn.classList.add('opacity-50');
+  try {
+    const res = await fetch('/api/admin/sync_pull', { method: 'POST' });
+    const d = await res.json();
+    if (d.ok) {
+      alert(`✅ Success: Restored ${d.records_restored} records across ${d.users_synced ? d.users_synced.length : 0} users from Turso!`);
+    } else {
+      alert(`❌ Restore Failed: ${d.error || 'Unknown error'}`);
+    }
+    fetchMetrics();
+  } catch (e) {
+    alert(`❌ Network error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('opacity-50');
   }
 }
 

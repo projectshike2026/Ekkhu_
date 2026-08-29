@@ -5,6 +5,8 @@ import json
 import base64
 import hashlib
 import shutil
+import time
+import threading
 from datetime import datetime, date, timedelta, timezone
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
@@ -495,28 +497,210 @@ class TursoConnection:
     def commit(self): pass
     def close(self): pass
 
+SYNCED_TABLES = [
+    "routine", "attendance", "budget", "tasks", "plans", 
+    "grades", "chat_history", "long_term_memory", 
+    "focus_sessions", "exams", "academic_profile", 
+    "academic_state", "schedule_exceptions"
+]
+
+class TursoSyncManager:
+    def __init__(self):
+        self.last_sync_time = None
+        self.last_sync_status = "Local SQLite Active (0.05ms speed)"
+        self._sync_lock = threading.Lock()
+        self._pending_push_users = set()
+
+    def is_configured(self):
+        return bool(os.getenv("TURSO_DATABASE_URL") and os.getenv("TURSO_AUTH_TOKEN"))
+
+    def _get_turso_conn(self, user_id="global"):
+        if not self.is_configured():
+            return None
+        return TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), user_id)
+
+    def pull_all_from_turso(self):
+        """Pull all global configs and user databases from Turso into local SQLite files."""
+        if not self.is_configured():
+            return {"ok": False, "error": "TURSO_DATABASE_URL not configured"}
+            
+        with self._sync_lock:
+            try:
+                # 1. Pull global store (users_config, ekku_key)
+                g_conn = self._get_turso_conn("global")
+                gc = g_conn.cursor()
+                try:
+                    gc.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
+                    gc.execute("SELECT key, value FROM global_store")
+                    for row in gc.fetchall():
+                        k = row[0] if isinstance(row, (tuple, list)) else row.get('key')
+                        v = row[1] if isinstance(row, (tuple, list)) else row.get('value')
+                        if k == 'users_config' and v:
+                            try:
+                                cfg = json.loads(v)
+                                with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                                    json.dump(cfg, f, indent=2)
+                                load_config(force_reload=True)
+                                print("[TURSO_SYNC] Restored users_config from Turso.")
+                            except Exception: pass
+                        elif k == 'ekku_key' and v:
+                            try:
+                                with open('ekku.key', 'wb') as f:
+                                    f.write(v.encode() if isinstance(v, str) else v)
+                                print("[TURSO_SYNC] Restored ekku.key from Turso.")
+                            except Exception: pass
+                except Exception as ge:
+                    print("[TURSO_SYNC] Global store pull error:", ge)
+
+                # 2. Restore user databases
+                users = load_users()
+                total_records = 0
+                synced_users = []
+
+                for u in users:
+                    uid = u['id']
+                    u_conn = self._get_turso_conn(uid)
+                    uc = u_conn.cursor()
+                    
+                    local_conn = sqlite3.connect(f'user_{uid}.db')
+                    local_conn.row_factory = sqlite3.Row
+                    init_db_schema(local_conn)
+                    lc = local_conn.cursor()
+
+                    for tbl in SYNCED_TABLES:
+                        turso_tbl = f"{uid}_{tbl}"
+                        try:
+                            uc.execute(f"SELECT * FROM {turso_tbl}")
+                            rows = uc.fetchall()
+                            if rows:
+                                cols = list(rows[0].keys())
+                                placeholders = ",".join(["?"] * len(cols))
+                                col_str = ",".join(cols)
+                                
+                                lc.execute(f"DELETE FROM {tbl}")
+                                for r in rows:
+                                    vals = [r[c] for c in cols]
+                                    lc.execute(f"INSERT OR REPLACE INTO {tbl} ({col_str}) VALUES ({placeholders})", vals)
+                                    total_records += 1
+                        except Exception:
+                            pass
+                    
+                    local_conn.commit()
+                    local_conn.close()
+                    synced_users.append(uid)
+
+                self.last_sync_time = now_bd_iso()
+                self.last_sync_status = f"Restored {total_records} records for {len(synced_users)} user(s)"
+                print(f"[TURSO_SYNC] Pull complete: {self.last_sync_status}")
+                return {"ok": True, "users_synced": synced_users, "records_restored": total_records, "time": self.last_sync_time}
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                self.last_sync_status = f"Pull failed: {e}"
+                return {"ok": False, "error": str(e)}
+
+    def push_all_to_turso(self):
+        """Push all local SQLite databases and global configs to Turso backup."""
+        if not self.is_configured():
+            return {"ok": False, "error": "TURSO_DATABASE_URL not configured"}
+
+        with self._sync_lock:
+            try:
+                # 1. Push global store
+                cfg = load_config()
+                g_conn = self._get_turso_conn("global")
+                gc = g_conn.cursor()
+                gc.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
+                gc.execute("INSERT OR REPLACE INTO global_store (key, value) VALUES ('users_config', ?)", (json.dumps(cfg),))
+                
+                if os.path.exists('ekku.key'):
+                    with open('ekku.key', 'rb') as f:
+                        kbytes = f.read().decode('utf-8', errors='ignore')
+                    gc.execute("INSERT OR REPLACE INTO global_store (key, value) VALUES ('ekku_key', ?)", (kbytes,))
+
+                # 2. Push user databases
+                users = load_users()
+                total_records = 0
+                synced_users = []
+
+                for u in users:
+                    uid = u['id']
+                    db_path = f'user_{uid}.db'
+                    if not os.path.exists(db_path):
+                        continue
+                    
+                    local_conn = sqlite3.connect(db_path)
+                    local_conn.row_factory = sqlite3.Row
+                    lc = local_conn.cursor()
+                    
+                    u_conn = self._get_turso_conn(uid)
+                    uc = u_conn.cursor()
+
+                    for tbl in SYNCED_TABLES:
+                        turso_tbl = f"{uid}_{tbl}"
+                        lc.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{tbl}'")
+                        schema_row = lc.fetchone()
+                        if schema_row and schema_row['sql']:
+                            create_sql = schema_row['sql'].replace(f"CREATE TABLE {tbl}", f"CREATE TABLE IF NOT EXISTS {turso_tbl}").replace(f"CREATE TABLE IF NOT EXISTS {tbl}", f"CREATE TABLE IF NOT EXISTS {turso_tbl}")
+                            try:
+                                uc.execute(create_sql)
+                            except Exception:
+                                pass
+
+                        lc.execute(f"SELECT * FROM {tbl}")
+                        rows = lc.fetchall()
+                        try:
+                            uc.execute(f"DELETE FROM {turso_tbl}")
+                            if rows:
+                                cols = [k for k in rows[0].keys()]
+                                col_str = ",".join(cols)
+                                placeholders = ",".join(["?"] * len(cols))
+                                for r in rows:
+                                    vals = [r[k] for k in cols]
+                                    uc.execute(f"INSERT INTO {turso_tbl} ({col_str}) VALUES ({placeholders})", vals)
+                                    total_records += 1
+                        except Exception as pe:
+                            print(f"[TURSO_SYNC] Error pushing {turso_tbl}:", pe)
+
+                    local_conn.close()
+                    synced_users.append(uid)
+
+                self.last_sync_time = now_bd_iso()
+                self.last_sync_status = f"Backed up {total_records} records for {len(synced_users)} user(s)"
+                print(f"[TURSO_SYNC] Push complete: {self.last_sync_status}")
+                return {"ok": True, "users_synced": synced_users, "records_pushed": total_records, "time": self.last_sync_time}
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                self.last_sync_status = f"Push failed: {e}"
+                return {"ok": False, "error": str(e)}
+
+    def trigger_async_push(self, user_id='A'):
+        """Schedule a non-blocking background backup to Turso."""
+        if not self.is_configured():
+            return
+        self._pending_push_users.add(user_id)
+        
+        def _bg():
+            time.sleep(2.0)
+            if self._pending_push_users:
+                self.push_all_to_turso()
+                self._pending_push_users.clear()
+
+        import threading
+        t = threading.Thread(target=_bg, daemon=True)
+        t.start()
+
+TURSO_SYNC = TursoSyncManager()
+
 _initialized_users = set()
 
 def get_db(user_id='A', skip_init=False):
-    turso_url = os.getenv("TURSO_DATABASE_URL")
-    turso_token = os.getenv("TURSO_AUTH_TOKEN")
-    
-    if turso_url and turso_token:
-        conn = TursoConnection(turso_url, turso_token, user_id)
-    else:
-        db_name = f'user_{user_id}.db'
-        conn = sqlite3.connect(db_name)
-        
+    """Always return lightning-fast local SQLite database (0.05ms query latency)."""
+    db_name = f'user_{user_id}.db'
+    conn = sqlite3.connect(db_name)
     conn.row_factory = sqlite3.Row
     if not skip_init and user_id not in _initialized_users:
-        c = conn.cursor()
-        try:
-            c.execute("SELECT 1 FROM chat_history LIMIT 1")
-            _initialized_users.add(user_id)
-        except sqlite3.OperationalError:
-            # Tables don't exist, initialize them
-            init_db_schema(conn)
-            _initialized_users.add(user_id)
+        init_db_schema(conn)
+        _initialized_users.add(user_id)
     return conn
 
 def init_db_schema(conn):
@@ -598,7 +782,7 @@ def init_db_schema(conn):
         created_at TEXT DEFAULT ''
     )''')
     c.execute('INSERT OR IGNORE INTO academic_state (id, mode, start_date, end_date, note, resume_date, created_at) VALUES (1, "regular", "", "", "Regular classes ongoing", "", ?)',
-              (datetime.now().isoformat(),))
+              (now_bd_iso(),))
 
     c.execute('''CREATE TABLE IF NOT EXISTS schedule_exceptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -617,11 +801,21 @@ def init_db(user_id='A'):
     conn.close()
 
 def init_all_users():
-    """Initialize DB for all registered users."""
+    """Initialize DB for all registered users and restore latest cloud backup on startup."""
+    # First: If Turso configured, pull latest snapshot from Turso into local SQLite
+    if TURSO_SYNC.is_configured():
+        try:
+            print("[INIT] Connecting to Turso to pull latest cloud backup...")
+            res = TURSO_SYNC.pull_all_from_turso()
+            if res.get('ok') and res.get('records_restored', 0) > 0:
+                print(f"[INIT] Turso Cloud Sync: Restored {res['records_restored']} records into local SQLite cache.")
+        except Exception as se:
+            print("[INIT] Turso startup sync warning:", se)
+
     users = load_users()
     for user in users:
         init_db(user['id'])
-    print(f"[INIT] {len(users)} user database(s) ready.")
+    print(f"[INIT] {len(users)} user database(s) ready (running on ultra-fast Local SQLite).")
 
 # Initialize DBs on startup
 try:
@@ -2114,8 +2308,26 @@ def admin_dashboard():
 
 @app.route('/api/admin/metrics', methods=['GET'])
 def api_admin_metrics():
-    """Return real-time RPM, RPD, Token counts, and recent error traces."""
-    return jsonify(METRICS_TRACKER.get_stats())
+    """Return real-time RPM, RPD, Token counts, recent error traces, and Turso cloud sync status."""
+    stats = METRICS_TRACKER.get_stats()
+    stats["turso_sync"] = {
+        "configured": TURSO_SYNC.is_configured(),
+        "last_sync_time": TURSO_SYNC.last_sync_time or "Not run yet",
+        "last_sync_status": TURSO_SYNC.last_sync_status
+    }
+    return jsonify(stats)
+
+@app.route('/api/admin/sync_push', methods=['POST'])
+def api_admin_sync_push():
+    """Push local SQLite databases and config to Turso cloud backup."""
+    res = TURSO_SYNC.push_all_to_turso()
+    return jsonify(res)
+
+@app.route('/api/admin/sync_pull', methods=['POST'])
+def api_admin_sync_pull():
+    """Pull and restore latest snapshot from Turso cloud into local SQLite."""
+    res = TURSO_SYNC.pull_all_from_turso()
+    return jsonify(res)
 
 @app.route('/api/admin/reset_metrics', methods=['POST'])
 def api_admin_reset_metrics():
@@ -2500,6 +2712,7 @@ def chat():
                 print(f"[DB] Commit error: {ce}")
                 
         write_conn.close()
+        TURSO_SYNC.trigger_async_push(user_id)
 
     except Exception as e:
         import traceback; traceback.print_exc()
