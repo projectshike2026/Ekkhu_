@@ -3825,20 +3825,18 @@ function showChatTyping() {
     d.className = isDesktop ? 'chat-msg flex justify-start animate-fade-in my-1' : 'flex justify-start animate-fade-in my-1.5';
     
     if (isDesktop) {
-        d.innerHTML = `<div class="glass-card rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex items-center gap-3">
-            <span class="w-7 h-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
-                <span class="material-symbols-outlined text-[16px]">smart_toy</span>
+        d.innerHTML = `<div class="glass-card rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex items-center gap-2.5 max-w-[90px]">
+            <span class="w-6 h-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center border border-primary/20 shrink-0">
+                <span class="material-symbols-outlined text-[14px]">smart_toy</span>
             </span>
             <div class="typing-dots"><span></span><span></span><span></span></div>
-            <span class="text-xs text-primary font-semibold font-mono">Ekkhu is thinking...</span>
         </div>`;
     } else {
-        d.innerHTML = `<div class="cyber-pill rounded-2xl rounded-tl-sm px-3.5 py-2.5 text-xs text-main shadow-sm flex items-center gap-2.5">
-            <div class="w-6 h-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center border border-primary/20 shrink-0">
-                <span class="material-symbols-outlined text-[14px]">smart_toy</span>
+        d.innerHTML = `<div class="cyber-pill rounded-2xl rounded-tl-sm px-3.5 py-2 text-xs text-main shadow-sm flex items-center gap-2 max-w-[80px]">
+            <div class="w-5 h-5 rounded-lg bg-primary/10 text-primary flex items-center justify-center border border-primary/20 shrink-0">
+                <span class="material-symbols-outlined text-[12px]">smart_toy</span>
             </div>
             <div class="typing-dots"><span></span><span></span><span></span></div>
-            <span class="text-[11px] text-muted font-mono font-medium">এক্কু ভাবছে...</span>
         </div>`;
     }
 
@@ -3868,7 +3866,7 @@ async function renderStaggeredReply(messages, emotion, isDesktop, ttsText = null
         const msg = String(msgs[i]);
         if (i > 0) {
             showChatTyping();
-            const delay = Math.min(Math.max(msg.length * 12, 350), 850);
+            const delay = Math.min(Math.max(msg.length * 3, 80), 200);
             await new Promise(r => setTimeout(r, delay));
             hideChatTyping();
         }

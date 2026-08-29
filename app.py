@@ -1071,7 +1071,7 @@ def call_gemini(messages, api_key):
     if not gm:
         gm = [{'role': 'user', 'parts': ['Hello']}]
 
-    models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
+    models_to_try = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash']
     last_error = None
     for model_name in models_to_try:
         try:
@@ -1598,7 +1598,7 @@ def transcribe_audio_bytes(audio_bytes, mime='audio/webm'):
                 "2. Do NOT add quotation marks, commentary, notes, or translations. "
                 "3. Perfectly capture colloquial spoken phrases (e.g. কি করছো তুমি, ঘুমাও না কেনো, কেমন আছো, কি অবস্থা, ভাই, দোস্ত, কাজ, রুটিন, অ্যাসাইনমেন্ট)."
             )
-            for model_name in ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']:
+            for model_name in ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash']:
                 try:
                     model = genai.GenerativeModel(model_name)
                     resp = model.generate_content([
