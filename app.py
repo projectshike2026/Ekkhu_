@@ -1042,6 +1042,9 @@ def call_groq(messages):
             print(f"[GROQ] Model {model} failed: {e}")
     raise Exception("All Groq models failed")
 
+class QuotaExhaustedError(Exception):
+    pass
+
 def call_gemini(messages, api_key, models_to_try=None):
     import google.generativeai as genai
     import json
@@ -1099,10 +1102,15 @@ def call_gemini(messages, api_key, models_to_try=None):
             last_error = e
             err_str = str(e)
             print(f"[GEMINI] Model {model_name} failed: {err_str[:100]}")
-            # If rate limit (429) or model not found (404), skip retry and move to next model immediately
-            if "429" in err_str or "404" in err_str or "quota" in err_str.lower():
+            # If rate limit (429) or quota exceeded, this API key is temporarily burned.
+            # Don't waste 3-5 seconds trying other models on the SAME burned key.
+            if "429" in err_str or "quota" in err_str.lower():
+                print(f"[GEMINI] Quota exhausted on this key. Aborting further model attempts on this key.")
+                raise QuotaExhaustedError("Quota exhausted for this API key.")
+            # If model not found (404), skip retry and move to next model immediately
+            if "404" in err_str:
                 continue
-            # For other errors, try once more without JSON response_mime_type
+            # For other errors (e.g. 500, parsing), try once more without JSON response_mime_type
             try:
                 model = genai.GenerativeModel(model_name, system_instruction=system_part)
                 resp = model.generate_content(
@@ -1138,6 +1146,9 @@ def call_llm(messages):
             result = call_gemini(messages, key_val, models_to_try=smart_models)
             print(f"[LLM] Smart model succeeded on {key_name}.")
             return result
+        except QuotaExhaustedError as e:
+            errors.append(f"{key_name}-smart: Quota Exhausted")
+            print(f"[LLM] Quota exhausted on {key_name}, instantly switching to next key...")
         except Exception as e:
             errors.append(f"{key_name}-smart: {e}")
             print(f"[LLM] All smart models failed on {key_name}, trying next key...")
@@ -2277,11 +2288,14 @@ def routine_parse_api():
     # 1. Vision with Gemini Multimodal
     if file_bytes:
         gemini_keys = [k for k in [GEMINI_API_KEY_1, GEMINI_API_KEY_2] if k]
+        smart_models = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash']
+        import google.generativeai as genai
+        
         for key in gemini_keys:
+            if extracted_classes: break
             try:
-                import google.generativeai as genai
                 genai.configure(api_key=key)
-                for model_name in ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.6-flash']:
+                for model_name in smart_models:
                     try:
                         model = genai.GenerativeModel(model_name)
                         clean_mime = 'image/jpeg' if 'jpeg' in mime_type or 'jpg' in mime_type else 'image/png' if 'png' in mime_type else 'image/webp' if 'webp' in mime_type else 'image/png'
@@ -2295,9 +2309,26 @@ def routine_parse_api():
                             extracted_classes = parsed['classes']
                             break
                     except Exception as me:
-                        print(f"[RoutineVision] {model_name} failed: {me}")
-                if extracted_classes:
-                    break
+                        err_str = str(me)
+                        print(f"[RoutineVision] {model_name} failed: {err_str[:80]}")
+                        if "429" in err_str or "quota" in err_str.lower():
+                            print("[RoutineVision] Quota exhausted on this key, skipping other models.")
+                            break
+                        if "404" in err_str:
+                            continue
+                
+                # If still no classes, try lite on this key as last resort before moving to next key
+                if not extracted_classes:
+                    try:
+                        model = genai.GenerativeModel('gemini-3.5-flash-lite')
+                        resp = model.generate_content([prompt, {'mime_type': clean_mime, 'data': file_bytes}])
+                        txt = resp.text.strip() if resp.text else ""
+                        parsed = safe_parse_json(txt)
+                        if parsed and isinstance(parsed.get('classes'), list) and len(parsed['classes']) > 0:
+                            extracted_classes = parsed['classes']
+                    except Exception as le:
+                        print(f"[RoutineVision] flash-lite failed: {str(le)[:80]}")
+
             except Exception as ke:
                 print(f"[RoutineVision] Gemini key error: {ke}")
 
