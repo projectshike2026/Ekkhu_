@@ -889,7 +889,11 @@ async function loadSummary() {
         // 5. Composite Academic Health Index Computation (5-Factor Model)
         computeAcademicHealthIndex(attPct, cgpa, pending, balance, data.today_focus_mins || 0);
 
-        // 6. Routine and Next Class Countdown
+        // 6. Academic Lifecycle & Dynamic Routine
+        currentAcademicState = data.academic_state || null;
+        scheduleExceptionsToday = data.schedule_exceptions_today || [];
+        renderAcademicStateBanner(currentAcademicState);
+
         cachedTodayClasses = data.today_routine || [];
         renderDashRoutine(cachedTodayClasses, today, data);
         updateNextClassCountdown();
@@ -1081,6 +1085,54 @@ function updateNextClassCountdown() {
     const badgeEl = document.getElementById('next-class-badge');
     const timeLabel = document.getElementById('next-class-time-label');
     const countEl = document.getElementById('next-class-countdown');
+
+    // 1. Academic Break & Exam Mode Override
+    if (currentAcademicState && currentAcademicState.is_active_break) {
+        const mode = currentAcademicState.mode;
+        const days = currentAcademicState.days_remaining || 0;
+        if (mode === 'prep_leave') {
+            if (titleEl) titleEl.textContent = 'Preparatory Leave (PL) Active 📖';
+            if (metaEl) metaEl.textContent = `${days} day(s) until finals. Normal classes are paused for study sprint.`;
+            if (badgeEl) { badgeEl.textContent = 'PL SPRINT'; badgeEl.className = 'text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30 animate-pulse'; }
+            if (timeLabel) timeLabel.textContent = 'FINALS IN';
+            if (countEl) {
+                countEl.textContent = `${days}d`;
+                countEl.className = 'text-base md:text-2xl font-mono font-black text-amber-500';
+            }
+            updateDynamicIslandUI('PL SPRINT', '📖 Prep Leave Active', `${days}d Left`, false);
+        } else if (mode === 'exam_week') {
+            if (titleEl) titleEl.textContent = 'Exam Season / Finals 🎯';
+            if (metaEl) metaEl.textContent = 'Check upcoming exam schedule & 72-Hour Survival protocols.';
+            if (badgeEl) { badgeEl.textContent = 'EXAMS ACTIVE'; badgeEl.className = 'text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-500 border border-rose-500/30 animate-pulse'; }
+            if (timeLabel) timeLabel.textContent = 'STATUS';
+            if (countEl) {
+                countEl.textContent = 'EXAMS';
+                countEl.className = 'text-base md:text-2xl font-mono font-black text-rose-500';
+            }
+            updateDynamicIslandUI('EXAMS', '🎯 Exam Season', 'Finals', false);
+        } else if (mode === 'semester_break') {
+            if (titleEl) titleEl.textContent = 'Semester Break / Vacation 🌴';
+            if (metaEl) metaEl.textContent = 'Academic obligations paused. Recharge & relax!';
+            if (badgeEl) { badgeEl.textContent = 'VACATION'; badgeEl.className = 'text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'; }
+            if (timeLabel) timeLabel.textContent = 'STATUS';
+            if (countEl) {
+                countEl.textContent = 'CHILL';
+                countEl.className = 'text-base md:text-2xl font-mono font-black text-emerald-500';
+            }
+            updateDynamicIslandUI('VACATION', '🌴 Semester Break', 'Chill', false);
+        } else if (mode === 'holiday') {
+            if (titleEl) titleEl.textContent = 'University Holiday / Off 🏖️';
+            if (metaEl) metaEl.textContent = currentAcademicState.note || 'Campus closed today.';
+            if (badgeEl) { badgeEl.textContent = 'HOLIDAY'; badgeEl.className = 'text-[9px] font-bold px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-500 border border-sky-500/30'; }
+            if (timeLabel) timeLabel.textContent = 'STATUS';
+            if (countEl) {
+                countEl.textContent = 'OFF';
+                countEl.className = 'text-base md:text-2xl font-mono font-black text-sky-500';
+            }
+            updateDynamicIslandUI('HOLIDAY', '🏖️ University Off', 'Closed', false);
+        }
+        return;
+    }
 
     if (!cachedTodayClasses || cachedTodayClasses.length === 0) {
         if (titleEl) titleEl.textContent = 'No classes scheduled today 🎉';
@@ -1310,6 +1362,218 @@ function renderSmartInsights(data) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  🎓 ACADEMIC LIFECYCLE & STATE MACHINE ENGINE
+// ════════════════════════════════════════════════════════════════
+let currentAcademicState = null;
+let scheduleExceptionsToday = [];
+let pendingCancelSlotData = null;
+
+function renderAcademicStateBanner(acadState) {
+    if (!acadState) return;
+    currentAcademicState = acadState;
+    const banner = document.getElementById('academic-mode-banner');
+    const title = document.getElementById('acad-mode-title');
+    const badge = document.getElementById('acad-mode-badge');
+    const sub = document.getElementById('acad-mode-subtitle');
+    const icon = document.getElementById('acad-mode-icon');
+    const box = document.getElementById('acad-mode-icon-box');
+
+    if (!banner || !title) return;
+
+    const mode = acadState.mode || 'regular';
+    const daysRem = acadState.days_remaining || 0;
+
+    if (mode === 'prep_leave') {
+        title.textContent = 'Preparatory Leave (PL)';
+        badge.textContent = `${daysRem} DAYS LEFT`;
+        badge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30 animate-pulse';
+        sub.textContent = acadState.note || 'Classes suspended • Final exam sprint & syllabus lock-in active';
+        if (icon) icon.textContent = 'auto_stories';
+        if (box) box.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+    } else if (mode === 'exam_week') {
+        title.textContent = 'Exam Season / Finals';
+        badge.textContent = 'ACTIVE EXAMS';
+        badge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30 animate-pulse';
+        sub.textContent = acadState.note || 'Regular classes paused • 72-Hour Exam Survival & Formula recall active';
+        if (icon) icon.textContent = 'local_fire_department';
+        if (box) box.style.background = 'linear-gradient(135deg, #e11d48, #be123c)';
+    } else if (mode === 'semester_break') {
+        title.textContent = 'Semester Break / Vacation';
+        badge.textContent = 'CHILL & RECHARGE';
+        badge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30';
+        sub.textContent = acadState.note || 'All academic obligations paused • Free time to relax and build side projects';
+        if (icon) icon.textContent = 'beach_access';
+        if (box) box.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+    } else if (mode === 'holiday') {
+        title.textContent = 'University Holiday / Off';
+        badge.textContent = 'CAMPUS CLOSED';
+        badge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-500 border border-sky-500/30';
+        sub.textContent = acadState.note || 'Temporary break • Class routine paused';
+        if (icon) icon.textContent = 'event_available';
+        if (box) box.style.background = 'linear-gradient(135deg, #0284c7, #0369a1)';
+    } else {
+        title.textContent = 'Regular Classes';
+        badge.textContent = 'SEMESTER ACTIVE';
+        badge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20';
+        sub.textContent = 'Normal weekly timetable active • Attendance tracking & safe-bunk shield enabled';
+        if (icon) icon.textContent = 'school';
+        if (box) box.style.background = 'var(--gradient-btn)';
+    }
+}
+
+async function openAcademicModeModal() {
+    playHaptic('tap');
+    const modal = document.getElementById('academic-mode-modal');
+    if (!modal) return;
+
+    try {
+        const state = await api('/api/academic_state');
+        currentAcademicState = state;
+        const sel = document.getElementById('acad-mode-select');
+        const sDate = document.getElementById('acad-start-date');
+        const eDate = document.getElementById('acad-end-date');
+        const noteInp = document.getElementById('acad-note');
+
+        if (sel) sel.value = state.mode || 'regular';
+        if (sDate) sDate.value = state.start_date || new Date().toISOString().split('T')[0];
+        if (eDate) eDate.value = state.end_date || state.resume_date || '';
+        if (noteInp) noteInp.value = state.note || '';
+        onAcadModeChange();
+    } catch(e) {}
+
+    modal.classList.remove('hidden');
+}
+
+function closeAcademicModeModal() {
+    const modal = document.getElementById('academic-mode-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function onAcadModeChange() {
+    const sel = document.getElementById('acad-mode-select');
+    const val = sel ? sel.value : 'regular';
+    const rangeRow = document.getElementById('acad-date-range-row');
+    const help = document.getElementById('acad-mode-help-text');
+
+    if (rangeRow) {
+        rangeRow.classList.toggle('hidden', val === 'regular');
+    }
+
+    if (help) {
+        if (val === 'prep_leave') {
+            help.textContent = '📖 Preparatory Leave (PL): Ekkhu pauses daily routine alarms and attendance counting, focusing your dynamic island and voice briefings on final exam study sprints.';
+        } else if (val === 'exam_week') {
+            help.textContent = '🎯 Exam Season: Routine is silenced and replaced with upcoming exam countdowns and 72-hour survival tactical plans.';
+        } else if (val === 'semester_break') {
+            help.textContent = '🌴 Semester Break: All academic demands paused. Ekkhu switches to chill companion mode with zero attendance penalties.';
+        } else if (val === 'holiday') {
+            help.textContent = '🏖️ University Holiday: Temporary multi-day closure. Classes are paused for selected dates.';
+        } else {
+            help.textContent = '🟢 Regular Classes: Normal routine and daily attendance tracking active.';
+        }
+    }
+}
+
+async function saveAcademicState() {
+    const sel = document.getElementById('acad-mode-select');
+    const sDate = document.getElementById('acad-start-date');
+    const eDate = document.getElementById('acad-end-date');
+    const noteInp = document.getElementById('acad-note');
+
+    const mode = sel ? sel.value : 'regular';
+    const startDate = sDate ? sDate.value : '';
+    const endDate = eDate ? eDate.value : '';
+    const note = noteInp ? noteInp.value.trim() : '';
+
+    try {
+        playHaptic('success');
+        const res = await api('/api/academic_state', 'POST', {
+            mode,
+            start_date: startDate,
+            end_date: endDate,
+            resume_date: endDate,
+            note
+        });
+
+        toast(`Academic Phase updated: ${res.academic_state.phase_label}`, 'success');
+        closeAcademicModeModal();
+        renderAcademicStateBanner(res.academic_state);
+        loadSummary();
+        loadRoutine();
+    } catch(e) {
+        toast('Failed to update academic state', 'error');
+    }
+}
+
+function openCancelSlotModal(course, dateStr, timeStr) {
+    playHaptic('tap');
+    pendingCancelSlotData = { course, dateStr, timeStr };
+    const modal = document.getElementById('cancel-slot-modal');
+    if (!modal) return;
+
+    const cInp = document.getElementById('cancel-slot-course');
+    const dInp = document.getElementById('cancel-slot-date');
+    const tInp = document.getElementById('cancel-slot-time');
+    const rInp = document.getElementById('cancel-slot-reason');
+
+    if (cInp) cInp.value = course;
+    if (dInp) dInp.value = dateStr || new Date().toISOString().split('T')[0];
+    if (tInp) tInp.value = timeStr || '';
+    if (rInp) rInp.value = 'Teacher absent / class cancelled';
+
+    modal.classList.remove('hidden');
+}
+
+function closeCancelSlotModal() {
+    const modal = document.getElementById('cancel-slot-modal');
+    if (modal) modal.classList.add('hidden');
+    pendingCancelSlotData = null;
+}
+
+async function confirmCancelSlot() {
+    if (!pendingCancelSlotData) return;
+    const cInp = document.getElementById('cancel-slot-course');
+    const dInp = document.getElementById('cancel-slot-date');
+    const tInp = document.getElementById('cancel-slot-time');
+    const rInp = document.getElementById('cancel-slot-reason');
+
+    const course = cInp ? cInp.value : pendingCancelSlotData.course;
+    const dateStr = dInp ? dInp.value : pendingCancelSlotData.dateStr;
+    const slotTime = tInp ? tInp.value : pendingCancelSlotData.timeStr;
+    const reason = rInp ? rInp.value.trim() : 'Cancelled';
+
+    try {
+        playHaptic('success');
+        await api('/api/schedule_exceptions', 'POST', {
+            course,
+            date: dateStr,
+            slot_time: slotTime,
+            type: 'class_cancelled',
+            reason
+        });
+
+        toast(`Marked ${course} cancelled for today ✓`, 'success');
+        closeCancelSlotModal();
+        loadRoutine();
+        loadSummary();
+    } catch(e) {
+        toast('Failed to cancel slot', 'error');
+    }
+}
+
+async function undoCancelSlot(excId) {
+    playHaptic('tap');
+    try {
+        await api(`/api/schedule_exceptions/${excId}`, 'DELETE');
+        toast('Restored class slot ✓', 'info');
+        loadRoutine();
+        loadSummary();
+    } catch(e) {
+        toast('Failed to undo cancellation', 'error');
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
 //  ROUTINE (Schedule & Timetable)
 // ════════════════════════════════════════════════════════════════
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1319,6 +1583,18 @@ async function loadRoutine() {
     const grid = document.getElementById('routine-grid');
     const pillsCont = document.getElementById('routine-day-pills');
     if (!grid) return;
+
+    const todayIso = new Date().toISOString().split('T')[0];
+    let exceptions = [];
+    try {
+        exceptions = await api(`/api/schedule_exceptions?date=${todayIso}`) || [];
+    } catch(e) {}
+    const cancelledMap = {};
+    if (Array.isArray(exceptions)) {
+        exceptions.forEach(ex => {
+            if (ex.course) cancelledMap[ex.course.toLowerCase().trim()] = ex;
+        });
+    }
 
     const todayDay = DAYS[new Date().getDay()];
 
@@ -1354,18 +1630,41 @@ async function loadRoutine() {
                 </div>
                 <div class="space-y-2 flex-1">
                     ${classes.length === 0 ? '<p class="text-[11px] text-muted text-center py-6">No classes</p>' :
-                    classes.map(c => `
-                        <div class="p-2.5 rounded-xl cyber-pill group hover:border-primary transition-all">
-                            <div class="flex justify-between items-start">
-                                <span class="text-xs font-bold text-main leading-tight truncate pr-1">${escapeHtml(c.course)}</span>
-                                <button onclick="deleteRoutine(${c.id})" class="text-muted hover:text-rose-500 text-xs transition-opacity shrink-0">✕</button>
+                    classes.map(c => {
+                        const isCancelled = isToday && cancelledMap[c.course.toLowerCase().trim()];
+                        const exc = isCancelled ? cancelledMap[c.course.toLowerCase().trim()] : null;
+
+                        if (isCancelled) {
+                            return `
+                                <div class="p-2.5 rounded-xl cyber-pill opacity-80 border border-rose-500/30 bg-rose-500/5">
+                                    <div class="flex justify-between items-start">
+                                        <span class="text-xs font-bold text-main line-through truncate pr-1">${escapeHtml(c.course)}</span>
+                                        <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-500 font-bold font-mono">OFF TODAY</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-[10px] text-muted mt-1 font-mono">
+                                        <span>${escapeHtml(c.time)} • ${escapeHtml(exc.reason || 'Cancelled')}</span>
+                                        <button onclick="undoCancelSlot(${exc.id})" class="text-[10px] text-primary font-bold hover:underline">Undo</button>
+                                    </div>
+                                </div>
+                            `;
+                        }
+
+                        return `
+                            <div class="p-2.5 rounded-xl cyber-pill group hover:border-primary transition-all">
+                                <div class="flex justify-between items-start">
+                                    <span class="text-xs font-bold text-main leading-tight truncate pr-1">${escapeHtml(c.course)}</span>
+                                    <div class="flex items-center gap-1">
+                                        ${isToday ? `<button onclick="openCancelSlotModal('${escapeHtml(c.course)}', '${todayIso}', '${escapeHtml(c.time)}')" class="text-[10px] text-muted hover:text-rose-500 font-bold px-1.5 py-0.5 rounded hover:bg-rose-500/10 transition-colors" title="Cancel this class slot today">🚫 Off</button>` : ''}
+                                        <button onclick="deleteRoutine(${c.id})" class="text-muted hover:text-rose-500 text-xs transition-opacity shrink-0" title="Delete class">✕</button>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between text-[10px] text-muted mt-1 font-mono font-semibold">
+                                    <span>${escapeHtml(c.time)}</span>
+                                    <span class="font-sans font-bold text-primary">${escapeHtml(c.room || '')}</span>
+                                </div>
                             </div>
-                            <div class="flex items-center justify-between text-[10px] text-muted mt-1 font-mono font-semibold">
-                                <span>${escapeHtml(c.time)}</span>
-                                <span class="font-sans font-bold text-primary">${escapeHtml(c.room || '')}</span>
-                            </div>
-                        </div>
-                    `).join('')}
+                        `;
+                    }).join('')}
                 </div>
             </div>
         `;

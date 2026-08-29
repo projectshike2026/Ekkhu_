@@ -558,6 +558,28 @@ def init_db_schema(conn):
     )''')
     c.execute('INSERT OR IGNORE INTO academic_profile (id, current_semester, baseline_cgpa, baseline_credits) VALUES (1, ?, 0.0, 0.0)',
               (encrypt_text('6th Semester'),))
+
+    c.execute('''CREATE TABLE IF NOT EXISTS academic_state (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        mode TEXT DEFAULT 'regular',
+        start_date TEXT DEFAULT '',
+        end_date TEXT DEFAULT '',
+        note TEXT DEFAULT '',
+        resume_date TEXT DEFAULT '',
+        created_at TEXT DEFAULT ''
+    )''')
+    c.execute('INSERT OR IGNORE INTO academic_state (id, mode, start_date, end_date, note, resume_date, created_at) VALUES (1, "regular", "", "", "Regular classes ongoing", "", ?)',
+              (datetime.now().isoformat(),))
+
+    c.execute('''CREATE TABLE IF NOT EXISTS schedule_exceptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT,
+        course TEXT,
+        slot_time TEXT DEFAULT '',
+        type TEXT DEFAULT 'class_cancelled',
+        reason TEXT DEFAULT '',
+        created_at TEXT DEFAULT ''
+    )''')
     conn.commit()
 
 def init_db(user_id='A'):
@@ -577,6 +599,134 @@ try:
     init_all_users()
 except Exception as _e:
     print(f"[INIT] Error initializing DBs: {_e}")
+
+# ------------------------------------------------------------------
+# Academic Lifecycle & Schedule Exception Helpers
+# ------------------------------------------------------------------
+def get_academic_state(user_id, conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
+    c = conn.cursor()
+    row = c.execute('SELECT * FROM academic_state WHERE id=1').fetchone()
+    if close_after:
+        conn.close()
+    
+    if not row:
+        return {
+            "mode": "regular",
+            "start_date": "",
+            "end_date": "",
+            "note": "Regular classes ongoing",
+            "resume_date": "",
+            "is_active_break": False,
+            "days_remaining": 0,
+            "phase_label": "Regular Classes"
+        }
+    
+    mode = row['mode'] or 'regular'
+    start_date = row['start_date'] or ''
+    end_date = row['end_date'] or ''
+    note = row['note'] or ''
+    resume_date = row['resume_date'] or ''
+    
+    today_iso = date.today().isoformat()
+    is_active = False
+    days_rem = 0
+    
+    if mode in ('prep_leave', 'exam_week', 'semester_break', 'holiday'):
+        if start_date and end_date:
+            is_active = (start_date <= today_iso <= end_date)
+            try:
+                ed_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+                days_rem = max(0, (ed_dt - date.today()).days)
+            except Exception:
+                pass
+        else:
+            is_active = True
+    
+    phase_labels = {
+        'regular': 'Regular Classes',
+        'prep_leave': 'Preparatory Leave (PL)',
+        'exam_week': 'Exam Season / Finals',
+        'semester_break': 'Semester Break',
+        'holiday': 'University Holiday / Off'
+    }
+    
+    return {
+        "mode": mode,
+        "start_date": start_date,
+        "end_date": end_date,
+        "note": note,
+        "resume_date": resume_date,
+        "is_active_break": is_active,
+        "days_remaining": days_rem,
+        "phase_label": phase_labels.get(mode, 'Academic Mode')
+    }
+
+def set_academic_state(user_id, mode, start_date='', end_date='', note='', resume_date='', conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
+    c = conn.cursor()
+    c.execute('''UPDATE academic_state 
+                 SET mode=?, start_date=?, end_date=?, note=?, resume_date=?, created_at=?
+                 WHERE id=1''',
+              (mode, start_date or '', end_date or '', note or '', resume_date or '', datetime.now().isoformat()))
+    conn.commit()
+    if close_after:
+        conn.close()
+
+def add_schedule_exception(user_id, exc_date, course, slot_time='', exc_type='class_cancelled', reason='', conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
+    c = conn.cursor()
+    c.execute('''INSERT INTO schedule_exceptions (date, course, slot_time, type, reason, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?)''',
+              (exc_date, encrypt_text(course) if HAS_CRYPTO else course, slot_time or '', exc_type, encrypt_text(reason) if (reason and HAS_CRYPTO) else reason, datetime.now().isoformat()))
+    conn.commit()
+    if close_after:
+        conn.close()
+
+def get_schedule_exceptions(user_id, exc_date=None, conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
+    c = conn.cursor()
+    if exc_date:
+        rows = c.execute('SELECT * FROM schedule_exceptions WHERE date=? ORDER BY id DESC', (exc_date,)).fetchall()
+    else:
+        rows = c.execute('SELECT * FROM schedule_exceptions ORDER BY date DESC, id DESC LIMIT 50').fetchall()
+    if close_after:
+        conn.close()
+    
+    result = []
+    for r in rows:
+        result.append({
+            "id": r['id'],
+            "date": r['date'],
+            "course": decrypt_text(r['course']),
+            "slot_time": r['slot_time'] or '',
+            "type": r['type'] or 'class_cancelled',
+            "reason": decrypt_text(r['reason']) if r['reason'] else ''
+        })
+    return result
+
+def delete_schedule_exception(user_id, exc_id, conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_db(user_id)
+        close_after = True
+    c = conn.cursor()
+    c.execute('DELETE FROM schedule_exceptions WHERE id=?', (exc_id,))
+    conn.commit()
+    if close_after:
+        conn.close()
 
 # ------------------------------------------------------------------
 # Chat helpers
@@ -1104,9 +1254,28 @@ def get_user_context(user_id, conn=None):
     else:
         workload_status = "LIGHT_OR_CHILL"
 
+    acad_state = get_academic_state(user_id, conn=conn)
+    exceptions_today = c.execute('SELECT * FROM schedule_exceptions WHERE date=?', (today_iso,)).fetchall()
+
     ctx = f"=== CURRENT REALITY & TEMPORAL CONTEXT (Bangladesh Time) ===\n"
     ctx += f"- Current Date & Day: {date_str} ({today_full})\n"
     ctx += f"- Current Time: {time_str} ({time_of_day})\n"
+    ctx += f"- Academic Phase / State: {acad_state['phase_label']} (Mode: {acad_state['mode']})\n"
+    if acad_state['is_active_break']:
+        ctx += f"  * ACTIVE ACADEMIC PHASE: {acad_state['phase_label']} until {acad_state['end_date'] or acad_state['resume_date'] or 'further notice'} ({acad_state['days_remaining']} day(s) remaining).\n"
+        ctx += f"  * Note: {acad_state['note'] or 'Classes suspended'}\n"
+        if acad_state['mode'] == 'prep_leave':
+            ctx += "  * DIRECTIVE: User is on Preparatory Leave (PL)! Normal classes are SUSPENDED. DO NOT nag about daily class attendance. Focus on final exam preparation sprints, syllabus coverage, and healthy study intervals.\n"
+        elif acad_state['mode'] == 'exam_week':
+            ctx += "  * DIRECTIVE: Active Final/Midterm Exam Period! Help them prioritize next exam papers, quick formula reviews, and stress relief.\n"
+        elif acad_state['mode'] == 'semester_break':
+            ctx += "  * DIRECTIVE: Semester Break / Vacation! Tell them to chill, recharge, learn a fun skill, or play games.\n"
+    if exceptions_today:
+        ctx += f"- TODAY'S SCHEDULE EXCEPTIONS ({len(exceptions_today)}):\n"
+        for ex in exceptions_today:
+            c_name = decrypt_text(ex['course'])
+            reason = decrypt_text(ex['reason']) if ex['reason'] else 'No reason given'
+            ctx += f"  * [CANCELLED/OFF] {c_name} at {ex['slot_time'] or 'All day'} - Reason: {reason}\n"
     ctx += f"- Tomorrow: {tomorrow_full} ({len(tomorrow_routine)} class(es) scheduled)\n"
     ctx += f"- Today's Study Focus Logged: {today_focus_mins} minutes\n"
     ctx += f"- Current Workload Level: {workload_status}\n\n"
@@ -1119,22 +1288,32 @@ def get_user_context(user_id, conn=None):
         shield = calculate_bunk_shield(a['present'], a['total'])
         att_dict[c_name.lower().strip()] = (c_name, shield)
 
-    if today_routine:
+    cancelled_courses_today = {decrypt_text(ex['course']).lower().strip() for ex in exceptions_today}
+
+    if today_routine and not acad_state['is_active_break']:
         for r in today_routine:
             c_name = decrypt_text(r['course']).lower().strip()
+            if c_name in cancelled_courses_today:
+                continue
             if c_name in att_dict:
                 orig_name, shield = att_dict[c_name]
                 if shield['status'] in ['ZERO_BUFFER', 'DEFICIT']:
                     critical_att_alerts.append(f"{orig_name} ({shield['percent']}%, {shield['status_text']})")
 
     ctx += "Today's Schedule:\n"
-    if today_routine:
+    if acad_state['is_active_break']:
+        ctx += f"- {acad_state['phase_label']} Active (No regular classes today).\n"
+    elif today_routine:
         for r in today_routine:
-            ctx += f"- {decrypt_text(r['course'])} at {r['time']}\n"
+            c_name_raw = decrypt_text(r['course'])
+            if c_name_raw.lower().strip() in cancelled_courses_today:
+                ctx += f"- [CANCELLED] {c_name_raw} at {r['time']}\n"
+            else:
+                ctx += f"- {c_name_raw} at {r['time']}\n"
     else:
         ctx += "- No classes scheduled today.\n"
 
-    if critical_att_alerts:
+    if critical_att_alerts and not acad_state['is_active_break']:
         ctx += "\n🚨 CRITICAL ATTENDANCE RISK ON TODAY'S CLASSES:\n"
         for alert in critical_att_alerts:
             ctx += f"  * {alert}\n"
@@ -1888,6 +2067,32 @@ def chat():
                                    action.get('date', date.today().isoformat()),
                                    action.get('time', '10:00 AM'),
                                    encrypt_text(action.get('notes', ''))))
+                    elif atype == "set_academic_mode":
+                        raw_mode = str(action.get('mode', 'prep_leave')).lower().strip()
+                        if 'pl' in raw_mode or 'prep' in raw_mode:
+                            mode = 'prep_leave'
+                        elif 'exam' in raw_mode:
+                            mode = 'exam_week'
+                        elif 'break' in raw_mode or 'vacation' in raw_mode:
+                            mode = 'semester_break'
+                        elif 'holiday' in raw_mode or 'off' in raw_mode:
+                            mode = 'holiday'
+                        else:
+                            mode = 'regular'
+                        set_academic_state(user_id, mode, action.get('start_date', date.today().isoformat()), action.get('end_date', ''), action.get('note', ''), action.get('resume_date', ''), conn=write_conn)
+                    elif atype == "cancel_class":
+                        c_date = action.get('date', date.today().isoformat())
+                        c_course = action.get('course', 'Class')
+                        c_time = action.get('slot_time', '')
+                        c_reason = action.get('reason', 'Class cancelled')
+                        add_schedule_exception(user_id, c_date, c_course, c_time, 'class_cancelled', c_reason, conn=write_conn)
+                    elif atype == "declare_holiday":
+                        h_start = action.get('start_date', date.today().isoformat())
+                        h_end = action.get('end_date', h_start)
+                        h_reason = action.get('reason', 'University closed / holiday')
+                        set_academic_state(user_id, 'holiday', h_start, h_end, h_reason, '', conn=write_conn)
+                    elif atype == "resume_regular_classes":
+                        set_academic_state(user_id, 'regular', '', '', 'Regular classes resumed', '', conn=write_conn)
                 except Exception as ae:
                     print(f"[ACTION] Execution skipped on error: {ae}")
 
@@ -2415,6 +2620,9 @@ def summary():
             e_dict[k] = decrypt_text(e_dict.get(k, ''))
         exams.append(e_dict)
 
+    acad_state = get_academic_state(user_id, conn=conn)
+    exceptions_today = get_schedule_exceptions(user_id, exc_date=today_str, conn=conn)
+
     conn.close()
     return jsonify({
         "today": today,
@@ -2434,8 +2642,49 @@ def summary():
         "done_tasks": done_ct,
         "today_focus_mins": today_focus_mins,
         "upcoming_exams": exams,
-        "exam_count": len(exams)
+        "exam_count": len(exams),
+        "academic_state": acad_state,
+        "schedule_exceptions_today": exceptions_today
     })
+
+# ------------------------------------------------------------------
+# Academic Lifecycle & Schedule Exceptions Endpoints
+# ------------------------------------------------------------------
+@app.route('/api/academic_state', methods=['GET', 'POST'])
+def api_academic_state():
+    user_id = get_current_user_id()
+    if request.method == 'POST':
+        data = request.json or {}
+        mode = data.get('mode', 'regular')
+        start_date = data.get('start_date', '')
+        end_date = data.get('end_date', '')
+        note = data.get('note', '')
+        resume_date = data.get('resume_date', '')
+        set_academic_state(user_id, mode, start_date, end_date, note, resume_date)
+        return jsonify({"ok": True, "academic_state": get_academic_state(user_id)})
+    return jsonify(get_academic_state(user_id))
+
+@app.route('/api/schedule_exceptions', methods=['GET', 'POST'])
+def api_schedule_exceptions():
+    user_id = get_current_user_id()
+    if request.method == 'POST':
+        data = request.json or {}
+        exc_date = data.get('date', date.today().isoformat())
+        course = data.get('course', '')
+        slot_time = data.get('slot_time', '')
+        exc_type = data.get('type', 'class_cancelled')
+        reason = data.get('reason', '')
+        add_schedule_exception(user_id, exc_date, course, slot_time, exc_type, reason)
+        return jsonify({"ok": True, "exceptions": get_schedule_exceptions(user_id)})
+    
+    exc_date = request.args.get('date')
+    return jsonify(get_schedule_exceptions(user_id, exc_date=exc_date))
+
+@app.route('/api/schedule_exceptions/<int:exc_id>', methods=['DELETE'])
+def api_delete_schedule_exception(exc_id):
+    user_id = get_current_user_id()
+    delete_schedule_exception(user_id, exc_id)
+    return jsonify({"ok": True})
 
 # ------------------------------------------------------------------
 # Focus Session Tracking API
@@ -2936,14 +3185,17 @@ def pa_daily_briefing():
     exam_rows = c.execute('SELECT * FROM exams WHERE date >= ? AND date <= ? ORDER BY date ASC', (today_str, future_7d)).fetchall()
     exams = [f"{decrypt_text(e['title'])} on {e['date']}" for e in exam_rows]
 
+    acad_state = get_academic_state(user_id, conn=conn)
+
     conn.close()
 
     pa_prompt = (
         "You are এক্কু (EKKHU), an elite AI Executive Personal Assistant. "
         f"Generate a crisp, empowering {period.upper()} executive briefing for the user in 100% natural, classy Bengali (বাংলা).\n"
         "Instructions:\n"
-        "- 2-3 high-impact sentences summarizing the top priorities, class schedule, or celebration of today's progress.\n"
-        "- If morning: Energize and highlight today's first class or top task.\n"
+        "- 2-3 high-impact sentences summarizing the top priorities, exam prep, or celebration of today's progress.\n"
+        "- If in Preparatory Leave (PL): Remind them about focused study sprints, revision blocks, and resting well before finals.\n"
+        "- If morning: Energize and highlight today's first class, study sprint, or top task.\n"
         "- If night: Praise completed work, summarize focus time, advise restful sleep.\n"
         "- Return ONLY a JSON object:\n"
         "{\n"
@@ -2956,7 +3208,8 @@ def pa_daily_briefing():
     )
 
     user_context_msg = f"""Period: {period.upper()} ({now.strftime('%I:%M %p')})
-Today's Scheduled Classes: {classes if classes else 'None scheduled'}
+Academic Mode: {acad_state['phase_label']} (Active Break/PL: {acad_state['is_active_break']}, Remaining: {acad_state['days_remaining']} days)
+Today's Scheduled Classes: {'Classes Suspended (' + acad_state['phase_label'] + ')' if acad_state['is_active_break'] else (classes if classes else 'None scheduled')}
 Pending Priority Tasks: {tasks if tasks else 'None pending'}
 Today's Focus Time Logged: {focus_mins} mins
 Completed Tasks: {done_tasks}

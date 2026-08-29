@@ -1516,6 +1516,27 @@
         </div>
       </div>
 
+      <!-- Academic Mode & Lifecycle Status Banner -->
+      <div id="academic-mode-banner" class="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border border-primary/20 transition-all">
+        <div class="flex items-center gap-3">
+          <div id="acad-mode-icon-box" class="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-lg shadow-md" style="background:var(--gradient-btn)">
+            <span class="material-symbols-outlined text-[20px]" id="acad-mode-icon">school</span>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-extrabold text-sm text-main" id="acad-mode-title">Regular Classes</h3>
+              <span id="acad-mode-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">ACTIVE</span>
+            </div>
+            <p class="text-xs text-muted font-medium mt-0.5" id="acad-mode-subtitle">Normal weekly timetable active • Attendance tracking enabled</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="openAcademicModeModal()" class="cyber-pill text-xs font-bold px-3.5 py-2 rounded-xl text-primary hover:bg-primary hover:text-white transition-all flex items-center gap-1.5 shadow-sm">
+            <span class="material-symbols-outlined text-[16px]">tune</span> Switch Academic Phase
+          </button>
+        </div>
+      </div>
+
       <!-- Routine Day Selector Pills -->
       <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-none" id="routine-day-pills"></div>
 
@@ -2669,6 +2690,116 @@
 
     <div class="flex justify-end gap-2.5 pt-2">
       <button onclick="closeExamSurvivalModal()" class="cyber-glow-btn px-6 py-2 rounded-xl text-white text-xs font-bold shadow">Ready to Study</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+  🎓 ACADEMIC LIFECYCLE & STATE MACHINE MODAL
+══════════════════════════════════════════════════════ -->
+<div id="academic-mode-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[105] flex items-center justify-center p-4">
+  <div class="glass-card rounded-3xl p-6 w-full max-w-md shadow-2xl border border-white/10 space-y-4 animate-scale-in">
+    <div class="flex justify-between items-center pb-2 border-b" style="border-color:var(--border-subtle)">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white shadow-sm" style="background:var(--gradient-btn)">
+          <span class="material-symbols-outlined text-[18px]">calendar_sync</span>
+        </div>
+        <div>
+          <h3 class="font-extrabold text-sm text-main">Academic Lifecycle Mode</h3>
+          <p class="text-[10px] text-muted font-mono">Sync Ekkhu with PL, Exams, or Vacation</p>
+        </div>
+      </div>
+      <button onclick="closeAcademicModeModal()" class="text-muted hover:text-main"><span class="material-symbols-outlined text-[20px]">close</span></button>
+    </div>
+
+    <div class="space-y-3">
+      <div>
+        <label class="block text-muted text-[11px] font-bold uppercase tracking-wider mb-1.5">Select Academic State</label>
+        <select id="acad-mode-select" class="light-input text-xs font-bold" onchange="onAcadModeChange()">
+          <option value="regular">🟢 Regular Classes (Normal Routine & Attendance Active)</option>
+          <option value="prep_leave">📖 Preparatory Leave / PL (Classes Paused, Exam Sprint)</option>
+          <option value="exam_week">🎯 Exam Season / Midterm & Finals (72h Survival Mode)</option>
+          <option value="semester_break">🌴 Semester Break / Vacation (Full Academic Pause)</option>
+          <option value="holiday">🏖️ University Holiday / Emergency Closure</option>
+        </select>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3" id="acad-date-range-row">
+        <div>
+          <label class="block text-muted text-[11px] font-bold uppercase tracking-wider mb-1.5">Start Date</label>
+          <input type="date" id="acad-start-date" class="light-input text-xs font-mono font-bold"/>
+        </div>
+        <div>
+          <label class="block text-muted text-[11px] font-bold uppercase tracking-wider mb-1.5">End / Resume Date</label>
+          <input type="date" id="acad-end-date" class="light-input text-xs font-mono font-bold"/>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-muted text-[11px] font-bold uppercase tracking-wider mb-1.5">Phase Note / Custom Reason</label>
+        <input type="text" id="acad-note" class="light-input text-xs" placeholder="e.g. 7-Day PL before Final Exams"/>
+      </div>
+
+      <div class="p-3.5 rounded-2xl cyber-pill text-xs text-muted space-y-1 font-medium bg-primary/5 border border-primary/20">
+        <p class="font-bold text-main flex items-center gap-1.5"><span class="material-symbols-outlined text-[15px] text-primary">verified_user</span> Attendance Protection Active</p>
+        <p id="acad-mode-help-text">During PL, Exam periods, or Semester breaks, Ekkhu automatically freezes attendance tracking so your bunk buffer is 100% protected.</p>
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-2.5 pt-2">
+      <button onclick="closeAcademicModeModal()" class="cyber-pill px-4 py-2 rounded-xl text-muted text-xs font-bold">Cancel</button>
+      <button onclick="saveAcademicState()" class="cyber-glow-btn px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md flex items-center gap-1.5">
+        <span class="material-symbols-outlined text-[16px]">save</span> Save &amp; Sync Ekkhu
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+  🚫 CANCEL CLASS SLOT MODAL
+══════════════════════════════════════════════════════ -->
+<div id="cancel-slot-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[105] flex items-center justify-center p-4">
+  <div class="glass-card rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-white/10 space-y-4 animate-scale-in">
+    <div class="flex justify-between items-center pb-2 border-b" style="border-color:var(--border-subtle)">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white bg-rose-600 shadow-sm">
+          <span class="material-symbols-outlined text-[18px]">event_busy</span>
+        </div>
+        <div>
+          <h3 class="font-extrabold text-sm text-main">Cancel Class Slot</h3>
+          <p class="text-[10px] text-muted font-mono">Mark single class off for today</p>
+        </div>
+      </div>
+      <button onclick="closeCancelSlotModal()" class="text-muted hover:text-main"><span class="material-symbols-outlined text-[20px]">close</span></button>
+    </div>
+
+    <div class="space-y-3">
+      <p class="text-xs text-muted font-medium">Mark this specific class slot as cancelled today. Ekkhu will pause attendance for this slot and update your live HUD.</p>
+      <div>
+        <label class="block text-muted text-[11px] font-bold uppercase tracking-wider mb-1.5">Course</label>
+        <input type="text" id="cancel-slot-course" class="light-input text-xs font-bold" readonly/>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-muted text-[11px] font-bold uppercase tracking-wider mb-1.5">Date</label>
+          <input type="date" id="cancel-slot-date" class="light-input text-xs font-mono font-bold" readonly/>
+        </div>
+        <div>
+          <label class="block text-muted text-[11px] font-bold uppercase tracking-wider mb-1.5">Time</label>
+          <input type="text" id="cancel-slot-time" class="light-input text-xs font-mono font-bold" readonly/>
+        </div>
+      </div>
+      <div>
+        <label class="block text-muted text-[11px] font-bold uppercase tracking-wider mb-1.5">Cancellation Reason</label>
+        <input type="text" id="cancel-slot-reason" class="light-input text-xs" placeholder="e.g. Teacher absent / cancelled"/>
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-2.5 pt-2">
+      <button onclick="closeCancelSlotModal()" class="cyber-pill px-4 py-2 rounded-xl text-muted text-xs font-bold">Back</button>
+      <button onclick="confirmCancelSlot()" class="bg-rose-600 hover:bg-rose-700 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md flex items-center gap-1.5 transition-all">
+        <span class="material-symbols-outlined text-[16px]">cancel</span> Confirm Cancel
+      </button>
     </div>
   </div>
 </div>

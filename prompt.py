@@ -149,7 +149,11 @@ Return ONLY this JSON. No extra text outside the JSON.
     { "type": "add_task", "title": "task title" },
     { "type": "add_exam", "title": "Midterm Exam", "course": "CSE 220", "exam_type": "Midterm", "date": "YYYY-MM-DD", "time": "10:00 AM" },
     { "type": "add_budget", "desc": "description", "amount": 100.0, "expense_type": "expense" },
-    { "type": "add_plan", "day": "Saturday", "duration": "1 hour", "title": "Coding" }
+    { "type": "add_plan", "day": "Saturday", "duration": "1 hour", "title": "Coding" },
+    { "type": "set_academic_mode", "mode": "prep_leave | exam_week | semester_break | regular | holiday", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "note": "PL before finals / Semester break", "resume_date": "YYYY-MM-DD" },
+    { "type": "cancel_class", "course": "course_name", "date": "YYYY-MM-DD", "slot_time": "10:00 AM", "reason": "Teacher absent / cancelled" },
+    { "type": "declare_holiday", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "reason": "University closed / holiday" },
+    { "type": "resume_regular_classes" }
   ],
   "memory": "MANDATORY for any personal/emotional/meaningful conversation. Write a concise, specific fact to remember (e.g., 'User always procrastinates on lab work until the last day', 'User plays guitar when stressed', 'User\'s apu works at an NGO'). Leave EMPTY ONLY for completely trivial small talk with zero personal info."
 }
