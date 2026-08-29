@@ -671,9 +671,9 @@ def set_academic_state(user_id, mode, start_date='', end_date='', note='', resum
         conn = get_db(user_id)
         close_after = True
     c = conn.cursor()
-    c.execute('''UPDATE academic_state 
-                 SET mode=?, start_date=?, end_date=?, note=?, resume_date=?, created_at=?
-                 WHERE id=1''',
+    c.execute('''INSERT OR REPLACE INTO academic_state 
+                 (id, mode, start_date, end_date, note, resume_date, created_at)
+                 VALUES (1, ?, ?, ?, ?, ?, ?)''',
               (mode, start_date or '', end_date or '', note or '', resume_date or '', datetime.now().isoformat()))
     conn.commit()
     if close_after:
@@ -732,7 +732,7 @@ def delete_schedule_exception(user_id, exc_id, conn=None):
 # Chat helpers
 # ------------------------------------------------------------------
 def clean_chat_text(text):
-    """Clean raw JSON leakage, unescape unicode sequences, and strip stacked timestamps."""
+    """Clean raw JSON leakage, unescape unicode sequences, strip stacked timestamps, and remove thinking notes."""
     if not text:
         return ""
     s = str(text).strip()
@@ -757,6 +757,12 @@ def clean_chat_text(text):
             pass
     # 3. Strip any stacked timestamp prefixes like [2026-08-29T10:55]
     s = re.sub(r'^(\[\d{4}-\d{2}-\d{2}[^\]]*\]\s*)+', '', s).strip()
+    
+    # 4. Remove any "thinking" text artifacts the LLM might have generated
+    s = re.sub(r'(?i)[\[\(\*]?(Ekkhu\s+)?(is\s+)?(thinking|vabche|processing)(\.\.\.)?[\]\)\*]?', '', s).strip()
+    s = re.sub(r'(?i)\*.*?(thinking|vabche|processing).*?\*', '', s).strip()
+    s = re.sub(r'(?i)\[.*?(thinking|vabche|processing).*?\]', '', s).strip()
+    
     return s
 
 def save_message(user_id, role, content, emotion=None, conn=None):
@@ -1071,7 +1077,7 @@ def call_gemini(messages, api_key):
     if not gm:
         gm = [{'role': 'user', 'parts': ['Hello']}]
 
-    models_to_try = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash']
+    models_to_try = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.7-flash']
     last_error = None
     for model_name in models_to_try:
         try:
@@ -2253,7 +2259,7 @@ def routine_parse_api():
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=key)
-                for model_name in ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']:
+                for model_name in ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.7-flash']:
                     try:
                         model = genai.GenerativeModel(model_name)
                         clean_mime = 'image/jpeg' if 'jpeg' in mime_type or 'jpg' in mime_type else 'image/png' if 'png' in mime_type else 'image/webp' if 'webp' in mime_type else 'image/png'
@@ -2332,8 +2338,16 @@ def routine_batch_import():
         c.execute('DELETE FROM routine')
     
     for item in classes:
+        raw_day = str(item.get('day', 'Sun')).strip().capitalize()
+        # Normalise to 3-letter day
+        if len(raw_day) > 3:
+            day_map = {'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed', 'Thursday': 'Thu', 'Friday': 'Fri', 'Saturday': 'Sat', 'Sunday': 'Sun'}
+            raw_day = day_map.get(raw_day, raw_day[:3])
+        else:
+            raw_day = raw_day[:3]
+            
         c.execute('INSERT INTO routine (day, time, course, room, prof, color) VALUES (?,?,?,?,?,?)',
-                  (item.get('day', 'Sun'), item.get('time', '10:00 AM'),
+                  (raw_day, item.get('time', '10:00 AM'),
                    encrypt_text(item.get('course', '')),
                    encrypt_text(item.get('room', '')),
                    encrypt_text(item.get('prof', '')),
