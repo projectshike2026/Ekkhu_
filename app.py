@@ -581,6 +581,34 @@ except Exception as _e:
 # ------------------------------------------------------------------
 # Chat helpers
 # ------------------------------------------------------------------
+def clean_chat_text(text):
+    """Clean raw JSON leakage, unescape unicode sequences, and strip stacked timestamps."""
+    if not text:
+        return ""
+    s = str(text).strip()
+    # 1. If raw JSON string was passed directly
+    if s.startswith('{') and '"reply"' in s:
+        try:
+            d = json.loads(s)
+            if 'reply' in d:
+                r = d['reply']
+                s = " ".join(r) if isinstance(r, list) else str(r)
+        except Exception:
+            m = re.search(r'"reply"\s*:\s*\[([^\]]*)\]', s)
+            if m:
+                items = re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"', m.group(1))
+                if items:
+                    s = " ".join(items)
+    # 2. Unescape unicode escapes like \u09a1 -> ডা
+    if r'\u' in s:
+        try:
+            s = s.encode('raw_unicode_escape').decode('unicode_escape')
+        except Exception:
+            pass
+    # 3. Strip any stacked timestamp prefixes like [2026-08-29T10:55]
+    s = re.sub(r'^(\[\d{4}-\d{2}-\d{2}[^\]]*\]\s*)+', '', s).strip()
+    return s
+
 def save_message(user_id, role, content, emotion=None, conn=None):
     close_after = False
     if conn is None:
@@ -588,9 +616,11 @@ def save_message(user_id, role, content, emotion=None, conn=None):
         close_after = True
     c = conn.cursor()
     ts = datetime.now().isoformat()
-    c.execute('INSERT INTO chat_history (timestamp, role, content, emotion) VALUES (?, ?, ?, ?)',
-              (ts, role, content, emotion))
-    conn.commit()
+    clean_text = clean_chat_text(content)
+    if clean_text:
+        c.execute('INSERT INTO chat_history (timestamp, role, content, emotion) VALUES (?, ?, ?, ?)',
+                  (ts, role, clean_text, emotion))
+        conn.commit()
     if close_after:
         conn.close()
 
@@ -612,7 +642,10 @@ def get_chat_history(user_id, max_messages=20, conn=None):
     messages = []
     for ts, role, content in reversed(rows):
         short_ts = ts[:16] if ts else "Unknown"
-        formatted_content = f"[{short_ts}] {content}"
+        clean_text = clean_chat_text(content)
+        if not clean_text:
+            continue
+        formatted_content = f"[{short_ts}] {clean_text}"
         if messages and messages[-1]["role"] == role:
             messages[-1]["content"] += "\n" + formatted_content
         else:
@@ -1750,9 +1783,20 @@ def chat():
             except Exception:
                 pass
 
-        # 4. Fallback: extract plain text lines as reply
-        lines = [line.strip() for line in text.split('\n') if line.strip() and not line.strip().startswith('{') and not line.strip().startswith('}') and '"reply"' not in line and '"actions"' not in line]
-        reply = lines if lines else [text]
+        # 4. Regex extraction of reply list or string
+        m_reply = re.search(r'"reply"\s*:\s*\[([^\]]*)\]', text, re.DOTALL)
+        if m_reply:
+            items = re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"', m_reply.group(1))
+            if items:
+                reply = [clean_chat_text(it) for it in items if clean_chat_text(it)]
+                m_emo = re.search(r'"emotion"\s*:\s*"([^"]+)"', text)
+                emo = m_emo.group(1) if m_emo else "neutral"
+                return {"reply": reply, "emotion": emo, "tts_text": " ".join(reply)}
+
+        # 5. Fallback: extract plain text lines as reply
+        clean_plain = clean_chat_text(text)
+        lines = [line.strip() for line in clean_plain.split('\n') if line.strip() and not line.strip().startswith('{') and not line.strip().startswith('}') and '"reply"' not in line and '"actions"' not in line]
+        reply = lines if lines else [clean_plain]
         return {"reply": reply, "emotion": "neutral", "tts_text": " ".join(reply)}
 
     try:
@@ -1761,16 +1805,15 @@ def chat():
         if isinstance(reply_data, str):
             reply_data = [reply_data]
             
-        # Clean SSML tags from visual reply
+        # Clean SSML tags and raw JSON artifacts from visual reply
         cleaned_reply_data = []
         for r in reply_data:
-            if isinstance(r, str):
-                r_clean = re.sub(r'</?(break|emphasis|speak)[^>]*>', '', r).strip()
+            r_str = clean_chat_text(r)
+            if r_str:
+                r_clean = re.sub(r'</?(break|emphasis|speak)[^>]*>', '', r_str).strip()
                 r_clean = re.sub(r' +', ' ', r_clean)
                 if r_clean:
                     cleaned_reply_data.append(r_clean)
-            else:
-                cleaned_reply_data.append(str(r))
         reply_data = cleaned_reply_data if cleaned_reply_data else ["বল দোস্ত, শুনতেছি।"]
             
         emotion = result.get("emotion", "neutral")

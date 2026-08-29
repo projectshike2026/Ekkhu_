@@ -57,8 +57,39 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
+function sanitizeChatMessage(content) {
+    if (!content) return '';
+    let str = String(content).trim();
+    // If raw JSON string was passed e.g. {"reply": [...], "emotion": ...}
+    if (str.startsWith('{') && str.includes('"reply"')) {
+        try {
+            const parsed = JSON.parse(str);
+            if (parsed.reply) {
+                str = Array.isArray(parsed.reply) ? parsed.reply.join(' ') : String(parsed.reply);
+            }
+        } catch(e) {
+            const m = str.match(/"reply"\s*:\s*\[([^\]]*)\]/);
+            if (m) {
+                const items = m[1].match(/"([^"\\]*(?:\\.[^"\\]*)*)"/g);
+                if (items) {
+                    str = items.map(s => s.replace(/^"|"$/g, '')).join(' ');
+                }
+            }
+        }
+    }
+    // Unescape raw unicode literals like \u09a1 -> ডা
+    if (str.includes('\\u')) {
+        try {
+            str = str.replace(/\\u([0-9a-fA-F]{4})/g, (m, c) => String.fromCharCode(parseInt(c, 16)));
+        } catch(e) {}
+    }
+    // Strip all stacked timestamps
+    str = str.replace(/^(\[\d{4}-\d{2}-\d{2}[^\]]*\]\s*)+/g, '').trim();
+    return str;
+}
+
 function stripTimestamp(content) {
-    return String(content || '').replace(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}\]\s*/, '');
+    return sanitizeChatMessage(content);
 }
 
 function isDesktopDevice() {
@@ -3395,13 +3426,15 @@ function getChatInput() {
 function addChatMsg(text, sender, emotion = null) {
     const cont = document.getElementById('chat-messages');
     if (!cont) return;
+    const clean = sanitizeChatMessage(text);
+    if (!clean) return;
     const div = document.createElement('div');
     div.className = sender === 'user' ? 'flex justify-end animate-fade-up' : 'flex justify-start animate-fade-up';
     if (sender === 'user') {
-        div.innerHTML = `<div class="cyber-glow-btn text-white rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[82%] text-xs shadow-md font-medium">${escapeHtml(text)}</div>`;
+        div.innerHTML = `<div class="cyber-glow-btn text-white rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[82%] text-xs shadow-md font-medium">${escapeHtml(clean)}</div>`;
     } else {
         const em = emotion ? `<span class="emotion-tag">${escapeHtml(emotion)}</span>` : '';
-        div.innerHTML = `<div class="cyber-pill rounded-2xl rounded-tl-sm px-3.5 py-2.5 max-w-[88%] text-xs text-main shadow-sm"><p class="inline leading-relaxed">${escapeHtml(text)}</p>${em}</div>`;
+        div.innerHTML = `<div class="cyber-pill rounded-2xl rounded-tl-sm px-3.5 py-2.5 max-w-[88%] text-xs text-main shadow-sm"><p class="inline leading-relaxed">${escapeHtml(clean)}</p>${em}</div>`;
     }
     cont.appendChild(div);
     cont.scrollTop = cont.scrollHeight;
@@ -3410,6 +3443,8 @@ function addChatMsg(text, sender, emotion = null) {
 function addDesktopMsg(text, sender, emotion = null) {
     const cont = document.getElementById('desk-chat-messages');
     if (!cont) return;
+    const clean = sanitizeChatMessage(text);
+    if (!clean) return;
     const empty = document.getElementById('desk-chat-empty');
     if (empty) empty.remove();
     hideDesktopTyping();
@@ -3419,7 +3454,7 @@ function addDesktopMsg(text, sender, emotion = null) {
 
     if (sender === 'user') {
         wrap.innerHTML = `<div class="max-w-[80%] cyber-glow-btn text-white rounded-2xl rounded-tr-sm px-5 py-3 shadow-lg font-medium text-xs md:text-sm">
-            <p class="whitespace-pre-wrap leading-relaxed">${escapeHtml(text)}</p>
+            <p class="whitespace-pre-wrap leading-relaxed">${escapeHtml(clean)}</p>
         </div>`;
     } else {
         const em = emotion ? `<span class="emotion-tag">${escapeHtml(emotion)}</span>` : '';
@@ -3430,7 +3465,7 @@ function addDesktopMsg(text, sender, emotion = null) {
                 </span>
                 <span class="text-[10px] font-bold text-primary uppercase tracking-wider font-mono">EKKHU CYBER COMPANION</span>${em}
             </div>
-            <div class="markdown-body text-xs md:text-sm text-main">${renderMarkdown(text)}</div>
+            <div class="markdown-body text-xs md:text-sm text-main">${renderMarkdown(clean)}</div>
         </div>`;
     }
     cont.appendChild(wrap);
