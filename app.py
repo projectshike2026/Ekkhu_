@@ -392,8 +392,13 @@ def decrypt_text(text):
         return text
 
 # ------------------------------------------------------------------
-# Database — Turso & Local
+# Database — Turso & Local (with High-Performance Connection Pooling)
 # ------------------------------------------------------------------
+_TURSO_HTTP_SESSION = requests.Session()
+_turso_adapter = requests.adapters.HTTPAdapter(pool_connections=25, pool_maxsize=25, max_retries=2)
+_TURSO_HTTP_SESSION.mount('https://', _turso_adapter)
+_TURSO_HTTP_SESSION.mount('http://', _turso_adapter)
+
 class TursoRow:
     def __init__(self, cols, vals):
         self._cols = cols
@@ -443,7 +448,7 @@ class TursoCursor:
         http_url = self.conn.url.replace("libsql://", "https://") + "/v2/pipeline"
         
         try:
-            resp = requests.post(http_url, headers=headers, json=payload, timeout=10)
+            resp = _TURSO_HTTP_SESSION.post(http_url, headers=headers, json=payload, timeout=6)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
