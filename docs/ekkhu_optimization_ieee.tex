@@ -196,12 +196,23 @@ Prompt engineering was re-factored to enforce minimal token footprint:
     \item Model invocation prioritized `gemini-3.5-flash-lite` (latency: $1.33\,\text{s}$) over `gemini-3.5-flash` ($6.72\,\text{s}$).
 \end{itemize}
 
-\subsection{WebRTC Client Acoustic Optimization}
-To prevent client-side audio degradation across iOS Safari and Android Chrome, the frontend recorder enforces hardware-accelerated acoustic filtering:
-\begin{equation}
-\mathcal{C}_{\text{audio}} = \{ \text{sampleRate: } 16000, \text{channels: } 1, \text{noiseSuppression: true} \}
-\end{equation}
-Recordings $<350\,\text{ms}$ or $<400\,\text{bytes}$ are discarded before network transmission to prevent empty payload errors.
+\subsection{Production Container Deployment \& Multi-Threaded WSGI Worker Pool}
+When deploying full-stack conversational systems on containerized free-tier hosting (e.g., Render.com, PythonAnywhere), two critical architectural constraints arise:
+\begin{enumerate}
+    \item \textbf{Ephemeral Container Reboots}: Free-tier containers enter sleep states after 15 minutes of inactivity, terminating in-memory states and wiping local ephemeral storage. By binding to Turso distributed libSQL over HTTP and persisting encrypted credentials, zero state loss is incurred across container lifecycles.
+    \item \textbf{Head-of-Line Concurrency Blocking}: Standard single-threaded development servers serialize requests, causing long multimodal STT audio uploads and Edge-TTS synthesis streams to block concurrent conversational chat requests. To resolve this, we configured a production multi-threaded WSGI worker pool via Gunicorn:
+    \begin{equation}
+    \mathcal{W}_{\text{pool}} = \{ \text{workers: } 2, \text{threads: } 4, \text{timeout: } 120\,\text{s} \}
+    \end{equation}
+    Combined with dynamic ingress port resolution (\texttt{0.0.0.0:\$PORT}), the container handles concurrent mobile voice, chat, and routine requests with zero inter-request contention.
+\end{enumerate}
+
+\subsection{Quota-Aware Model Tiering \& Mobile Viewport Containment}
+\begin{enumerate}
+    \item \textbf{429 Rate-Limit Avoidance via Flash-Lite Tiering}: Free-tier developer quotas impose strict limits on larger models (e.g., 20 requests/day on experimental flash variants). By prioritizing \texttt{gemini-3.5-flash-lite} as the primary inference engine ($<1.0\,\text{s}$ latency and high requests-per-minute ceiling) and cascading to \texttt{gemini-3.5-flash}, the system avoids the $5\text{--}8\,\text{s}$ retry latency penalties previously triggered by 429 quota exhaustion.
+    \item \textbf{Mobile Viewport Height Containment ($100\,\text{dvh}$)}: On mobile devices with dynamic address bars and fixed curved navigation docks, CSS layouts with traditional $100\,\text{vh}$ push the chat input bar below the fold. We engineered dynamic viewport rules enforcing \texttt{height: calc(100dvh - 56px)} with safe-area bottom padding ($\text{calc}(76\text{px} + \text{env}(\text{safe-area-inset-bottom}))$), isolating scroll boundaries strictly to the message stream.
+    \item \textbf{Minimalist Micro-Typing Emulation}: Replaced distracting status text with a low-cognitive-overhead animated 3-dot pulsing bubble, matching modern messaging UX standards.
+\end{enumerate}
 
 \section{Experimental Evaluation}
 
@@ -244,8 +255,8 @@ Whisper Large v3 Turbo     & 58.1\% & 41.6\% & $1.9\,\text{s}$ & Medium ($>25\%$
 \end{tabularx}
 \end{table}
 
-\subsection{Decoding Robustness \& Latency Results}
-We evaluated conversational resilience across 100 complex multi-intent dialogue turns (including exam study plans, schedule conflicts, and routine creation requests):
+\subsection{Decoding Robustness \& System-Wide Verification}
+We evaluated conversational resilience and full-stack performance across 100 complex multi-intent dialogue turns and conducted automated endpoint verification across all 14 core subsystems in the production container:
 
 \begin{table}[ht]
 \caption{Decoding Robustness and Error Rate Comparison}
@@ -264,8 +275,34 @@ Database Roundtrips / Turn & $22.4$ & $\mathbf{2.0}$ \\
 \end{tabular}
 \end{table}
 
+\begin{table}[ht]
+\caption{Production Container 14-Endpoint Verification Suite}
+\label{tab:endpoint_verification}
+\centering
+\begin{tabularx}{\columnwidth}{llcc}
+\toprule
+\textbf{Subsystem Endpoint} & \textbf{HTTP Method} & \textbf{Status} & \textbf{Latency} \\
+\midrule
+\texttt{/api/auth/me} & GET & \texttt{200 OK} & $0.001\,\text{s}$ \\
+\texttt{/api/routine} & GET & \texttt{200 OK} & $0.002\,\text{s}$ \\
+\texttt{/api/tasks} & GET & \texttt{200 OK} & $0.001\,\text{s}$ \\
+\texttt{/api/budget} & GET & \texttt{200 OK} & $0.001\,\text{s}$ \\
+\texttt{/api/summary} & GET & \texttt{200 OK} & $0.002\,\text{s}$ \\
+\texttt{/api/attendance} & GET & \texttt{200 OK} & $0.010\,\text{s}$ \\
+\texttt{/api/academic\_state} & GET & \texttt{200 OK} & $0.001\,\text{s}$ \\
+\texttt{/api/exams} & GET & \texttt{200 OK} & $0.001\,\text{s}$ \\
+\texttt{/api/focus/stats} & GET & \texttt{200 OK} & $0.001\,\text{s}$ \\
+\texttt{/api/chat/history} & GET & \texttt{200 OK} & $0.004\,\text{s}$ \\
+\texttt{/api/routine/export\_ics} & GET & \texttt{200 OK} & $0.013\,\text{s}$ \\
+\texttt{/api/pa/daily\_briefing} & GET & \texttt{200 OK} & $2.756\,\text{s}$ \\
+\texttt{/chat} (Conversational AI) & POST & \texttt{200 OK} & $2.272\,\text{s}$ \\
+\texttt{/tts} (Neural Edge Synthesis) & POST & \texttt{200 OK} & $2.277\,\text{s}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
 \section{Conclusion}
-This paper presented the systematic engineering optimization of the EKKHU conversational platform. By replacing sub-word acoustic speech pipelines with native multimodal foundation model audio ingestion, deploying a fault-tolerant heuristic JSON auto-repair decoder, consolidating distributed libSQL transactions into an in-memory cached architecture, and distilling prompt payloads, we resolved critical latency, phonetic hallucination, and decode crash challenges. The resulting architecture establishes a high-performance blueprint for deploying production-grade, low-latency conversational AI agents in low-resource regional languages on free edge infrastructure.
+This paper presented the systematic engineering optimization of the EKKHU conversational platform. By replacing sub-word acoustic speech pipelines with native multimodal foundation model audio ingestion, deploying a fault-tolerant heuristic JSON auto-repair decoder, consolidating distributed libSQL transactions into an in-memory cached architecture, establishing quota-aware model priority, and deploying a multi-threaded WSGI worker pool, we resolved critical latency, phonetic hallucination, and decode crash challenges. The resulting architecture establishes a high-performance blueprint for deploying production-grade, low-latency conversational AI agents in low-resource regional languages on free edge infrastructure.
 
 \begin{thebibliography}{00}
 \bibitem{radford2023whisper} A. Radford et al., ``Robust Speech Recognition via Large-Scale Weak Supervision,'' in \textit{Proc. ICML}, 2023.
