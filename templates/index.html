@@ -844,12 +844,28 @@
       display: flex !important;
       flex-direction: column !important;
     }
-    #mob-text-view {
+    #mob-text-view:not(.hidden) {
       height: 100% !important;
       flex: 1 1 0% !important;
       min-height: 0 !important;
       display: flex !important;
       flex-direction: column !important;
+    }
+    #mob-voice-view:not(.hidden) {
+      height: 100% !important;
+      flex: 1 1 0% !important;
+      min-height: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      align-items: center !important;
+    }
+    #mob-text-view.hidden,
+    #mob-voice-view.hidden,
+    #desk-text-view.hidden,
+    #desk-voice-view.hidden,
+    .hidden {
+      display: none !important;
     }
     #chat-messages {
       flex: 1 1 0% !important;

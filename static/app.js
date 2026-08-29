@@ -3714,8 +3714,14 @@ function switchChatMode(mode) {
     if (mTextBtn && mVoiceBtn) {
         mTextBtn.className = isVoice ? 'px-3 py-1 text-[11px] font-bold rounded-lg text-muted transition-all' : 'px-3 py-1 text-[11px] font-bold rounded-lg bg-primary text-white shadow-sm transition-all';
         mVoiceBtn.className = isVoice ? 'px-3 py-1 text-[11px] font-bold rounded-lg bg-primary text-white shadow-sm transition-all' : 'px-3 py-1 text-[11px] font-bold rounded-lg text-muted transition-all';
-        if (mTextVw) mTextVw.classList.toggle('hidden', isVoice);
-        if (mVoiceVw) mVoiceVw.classList.toggle('hidden', !isVoice);
+        if (mTextVw) {
+            mTextVw.classList.toggle('hidden', isVoice);
+            mTextVw.style.display = isVoice ? 'none' : 'flex';
+        }
+        if (mVoiceVw) {
+            mVoiceVw.classList.toggle('hidden', !isVoice);
+            mVoiceVw.style.display = isVoice ? 'flex' : 'none';
+        }
     }
 
     if (!isVoice) {
@@ -3752,7 +3758,7 @@ function addDesktopMsg(text, sender, emotion = null) {
     if (!clean) return;
     const empty = document.getElementById('desk-chat-empty');
     if (empty) empty.remove();
-    hideDesktopTyping();
+    hideChatTyping();
 
     const wrap = document.createElement('div');
     wrap.className = 'chat-msg ' + (sender === 'user' ? 'flex justify-end animate-fade-up' : 'flex justify-start animate-fade-up');
@@ -3804,47 +3810,70 @@ async function loadDesktopChatHistory() {
     } catch (e) { }
 }
 
-function showDesktopTyping() {
-    const cont = document.getElementById('desk-chat-messages');
-    if (!cont || document.getElementById('desk-typing')) return;
-    const empty = document.getElementById('desk-chat-empty');
-    if (empty) empty.remove();
+function showChatTyping() {
+    const isDesktop = isDesktopDevice();
+    const cont = isDesktop ? document.getElementById('desk-chat-messages') : document.getElementById('chat-messages');
+    if (!cont || document.getElementById('chat-typing-indicator') || document.getElementById('desk-typing')) return;
+
+    if (isDesktop) {
+        const empty = document.getElementById('desk-chat-empty');
+        if (empty) empty.remove();
+    }
+
     const d = document.createElement('div');
-    d.id = 'desk-typing';
-    d.className = 'chat-msg flex justify-start animate-fade-in';
-    d.innerHTML = `<div class="glass-card rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex items-center gap-3">
-        <span class="w-7 h-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
-            <span class="material-symbols-outlined text-[16px]">smart_toy</span>
-        </span>
-        <div class="typing-dots"><span></span><span></span><span></span></div>
-        <span class="text-xs text-primary font-semibold font-mono">Ekkhu is thinking...</span>
-    </div>`;
+    d.id = isDesktop ? 'desk-typing' : 'chat-typing-indicator';
+    d.className = isDesktop ? 'chat-msg flex justify-start animate-fade-in my-1' : 'flex justify-start animate-fade-in my-1.5';
+    
+    if (isDesktop) {
+        d.innerHTML = `<div class="glass-card rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex items-center gap-3">
+            <span class="w-7 h-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
+                <span class="material-symbols-outlined text-[16px]">smart_toy</span>
+            </span>
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+            <span class="text-xs text-primary font-semibold font-mono">Ekkhu is thinking...</span>
+        </div>`;
+    } else {
+        d.innerHTML = `<div class="cyber-pill rounded-2xl rounded-tl-sm px-3.5 py-2.5 text-xs text-main shadow-sm flex items-center gap-2.5">
+            <div class="w-6 h-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center border border-primary/20 shrink-0">
+                <span class="material-symbols-outlined text-[14px]">smart_toy</span>
+            </div>
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+            <span class="text-[11px] text-muted font-mono font-medium">এক্কু ভাবছে...</span>
+        </div>`;
+    }
+
     cont.appendChild(d);
     cont.scrollTop = cont.scrollHeight;
 }
 
-function hideDesktopTyping() {
-    const t = document.getElementById('desk-typing');
+function hideChatTyping() {
+    const t = document.getElementById('chat-typing-indicator');
     if (t) t.remove();
+    const dt = document.getElementById('desk-typing');
+    if (dt) dt.remove();
 }
+
+function showDesktopTyping() { showChatTyping(); }
+function hideDesktopTyping() { hideChatTyping(); }
 
 async function renderStaggeredReply(messages, emotion, isDesktop, ttsText = null) {
     const msgs = Array.isArray(messages)
         ? messages.filter(m => m && String(m).trim())
         : [messages].filter(m => m && String(m).trim());
 
+    hideChatTyping();
     if (msgs.length === 0) return;
 
     for (let i = 0; i < msgs.length; i++) {
         const msg = String(msgs[i]);
         if (i > 0) {
-            if (isDesktop) showDesktopTyping();
-            const delay = Math.min(Math.max(msg.length * 10, 250), 750);
+            showChatTyping();
+            const delay = Math.min(Math.max(msg.length * 12, 350), 850);
             await new Promise(r => setTimeout(r, delay));
+            hideChatTyping();
         }
 
         if (isDesktop) {
-            hideDesktopTyping();
             addDesktopMsg(msg, 'assistant', emotion);
         } else {
             addChatMsg(msg, 'assistant', emotion);
@@ -3870,7 +3899,7 @@ async function sendChat() {
     if (input) input.value = '';
     if (desktop) autoGrowDeskInput();
 
-    if (desktop) showDesktopTyping();
+    showChatTyping();
 
     try {
         const res = await fetch('/chat', {
@@ -3880,11 +3909,11 @@ async function sendChat() {
         });
         const data = await res.json();
 
-        if (desktop) hideDesktopTyping();
+        hideChatTyping();
         await renderStaggeredReply(data.reply, data.emotion, desktop, data.tts_text);
     } catch (e) {
+        hideChatTyping();
         if (desktop) {
-            hideDesktopTyping();
             addDesktopMsg('Network or server error. Please try again.', 'assistant');
         } else {
             addChatMsg('Network error. Please try again.', 'assistant');
