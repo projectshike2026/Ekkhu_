@@ -1106,14 +1106,14 @@ def call_gemini(messages, api_key):
     raise Exception(f"All Gemini models failed. Last error: {last_error}")
 
 def call_llm(messages):
-    """Priority: Gemini Key 1 → Gemini Key 2 → Groq fallback"""
+    """Priority: Gemini Key 1 → Gemini Key 2 (Exclusively Gemini for natural conversational responses)"""
     providers = []
     if GEMINI_API_KEY_1:
         providers.append(('gemini-1', lambda: call_gemini(messages, GEMINI_API_KEY_1)))
     if GEMINI_API_KEY_2:
         providers.append(('gemini-2', lambda: call_gemini(messages, GEMINI_API_KEY_2)))
-    if GROQ_API_KEY:
-        providers.append(('groq', lambda: call_groq(messages)))
+    # Groq is reserved for agentic/utility tasks (e.g. Whisper transcription / parsing)
+    # to maintain Gemini's superior conversational tone in chat.
     if not providers:
         raise Exception("No API keys set! Set GEMINI_API_KEY_1 in environment variables.")
     errors = []
@@ -1125,7 +1125,7 @@ def call_llm(messages):
         except Exception as e:
             errors.append(f"{name}: {e}")
             print(f"[LLM] Provider '{name}' failed: {e}")
-    raise Exception("All providers failed: " + str(errors))
+    raise Exception("All Gemini providers failed: " + str(errors))
 
 import math
 
