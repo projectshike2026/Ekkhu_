@@ -1077,7 +1077,7 @@ def call_gemini(messages, api_key):
     if not gm:
         gm = [{'role': 'user', 'parts': ['Hello']}]
 
-    models_to_try = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.7-flash']
+    models_to_try = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.6-flash']
     last_error = None
     for model_name in models_to_try:
         try:
@@ -1094,7 +1094,11 @@ def call_gemini(messages, api_key):
                 return resp.text
         except Exception as e:
             last_error = e
-            print(f"Gemini model {model_name} failed: {e}")
+            err_str = str(e)
+            print(f"Gemini model {model_name} failed: {err_str[:80]}")
+            # If rate limit (429) or model not found (404), skip retry and move to next model immediately
+            if "429" in err_str or "404" in err_str or "quota" in err_str.lower():
+                continue
             try:
                 model = genai.GenerativeModel(model_name, system_instruction=system_part)
                 resp = model.generate_content(
@@ -2259,7 +2263,7 @@ def routine_parse_api():
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=key)
-                for model_name in ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.7-flash']:
+                for model_name in ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.6-flash']:
                     try:
                         model = genai.GenerativeModel(model_name)
                         clean_mime = 'image/jpeg' if 'jpeg' in mime_type or 'jpg' in mime_type else 'image/png' if 'png' in mime_type else 'image/webp' if 'webp' in mime_type else 'image/png'
