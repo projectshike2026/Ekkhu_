@@ -1042,7 +1042,7 @@ def call_groq(messages):
             print(f"[GROQ] Model {model} failed: {e}")
     raise Exception("All Groq models failed")
 
-def call_gemini(messages, api_key):
+def call_gemini(messages, api_key, models_to_try=None):
     import google.generativeai as genai
     import json
     genai.configure(api_key=api_key)
@@ -1077,7 +1077,9 @@ def call_gemini(messages, api_key):
     if not gm:
         gm = [{'role': 'user', 'parts': ['Hello']}]
 
-    models_to_try = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.6-flash']
+    if models_to_try is None:
+        models_to_try = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash']
+    
     last_error = None
     for model_name in models_to_try:
         try:
@@ -1091,14 +1093,16 @@ def call_gemini(messages, api_key):
                 }
             )
             if resp and resp.text:
+                print(f"[GEMINI] Model {model_name} succeeded.")
                 return resp.text
         except Exception as e:
             last_error = e
             err_str = str(e)
-            print(f"Gemini model {model_name} failed: {err_str[:80]}")
+            print(f"[GEMINI] Model {model_name} failed: {err_str[:100]}")
             # If rate limit (429) or model not found (404), skip retry and move to next model immediately
             if "429" in err_str or "404" in err_str or "quota" in err_str.lower():
                 continue
+            # For other errors, try once more without JSON response_mime_type
             try:
                 model = genai.GenerativeModel(model_name, system_instruction=system_part)
                 resp = model.generate_content(
@@ -1109,33 +1113,47 @@ def call_gemini(messages, api_key):
                     }
                 )
                 if resp and resp.text:
+                    print(f"[GEMINI] Model {model_name} succeeded (plain fallback).")
                     return resp.text
             except Exception as e2:
-                print(f"Gemini model {model_name} standard fallback failed: {e2}")
+                print(f"[GEMINI] Model {model_name} plain fallback also failed: {str(e2)[:80]}")
 
-    raise Exception(f"All Gemini models failed. Last error: {last_error}")
+    raise Exception(f"All Gemini models failed on this key. Last error: {last_error}")
 
 def call_llm(messages):
-    """Priority: Gemini Key 1 → Gemini Key 2 (Exclusively Gemini for natural conversational responses)"""
-    providers = []
+    """Smart cascade: Try ALL intelligent models on Key1 → Key2 before falling to lite models."""
+    keys = []
     if GEMINI_API_KEY_1:
-        providers.append(('gemini-1', lambda: call_gemini(messages, GEMINI_API_KEY_1)))
+        keys.append(('key-1', GEMINI_API_KEY_1))
     if GEMINI_API_KEY_2:
-        providers.append(('gemini-2', lambda: call_gemini(messages, GEMINI_API_KEY_2)))
-    # Groq is reserved for agentic/utility tasks (e.g. Whisper transcription / parsing)
-    # to maintain Gemini's superior conversational tone in chat.
-    if not providers:
+        keys.append(('key-2', GEMINI_API_KEY_2))
+    if not keys:
         raise Exception("No API keys set! Set GEMINI_API_KEY_1 in environment variables.")
+
+    # Phase 1: Try smart models on all keys first
+    smart_models = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash']
     errors = []
-    for name, fn in providers:
+    for key_name, key_val in keys:
         try:
-            result = fn()
-            print(f"[LLM] Provider '{name}' succeeded.")
+            result = call_gemini(messages, key_val, models_to_try=smart_models)
+            print(f"[LLM] Smart model succeeded on {key_name}.")
             return result
         except Exception as e:
-            errors.append(f"{name}: {e}")
-            print(f"[LLM] Provider '{name}' failed: {e}")
-    raise Exception("All Gemini providers failed: " + str(errors))
+            errors.append(f"{key_name}-smart: {e}")
+            print(f"[LLM] All smart models failed on {key_name}, trying next key...")
+
+    # Phase 2: If ALL smart models on ALL keys exhausted, try lite as absolute last resort
+    lite_models = ['gemini-3.5-flash-lite']
+    for key_name, key_val in keys:
+        try:
+            result = call_gemini(messages, key_val, models_to_try=lite_models)
+            print(f"[LLM] Lite fallback succeeded on {key_name}.")
+            return result
+        except Exception as e:
+            errors.append(f"{key_name}-lite: {e}")
+            print(f"[LLM] Lite model also failed on {key_name}.")
+
+    raise Exception("All Gemini providers and models failed: " + str(errors))
 
 import math
 
