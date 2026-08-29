@@ -413,7 +413,12 @@ class TursoCursor:
         self.rows = []
         self._row_idx = 0
         self.row_factory = None
-        self.tables = ["routine", "attendance", "budget", "tasks", "plans", "grades", "chat_history", "long_term_memory"]
+        self.tables = [
+            "routine", "attendance", "budget", "tasks", "plans", 
+            "grades", "chat_history", "long_term_memory", 
+            "focus_sessions", "exams", "academic_profile", 
+            "academic_state", "schedule_exceptions"
+        ]
 
     def _rewrite(self, sql):
         # Prevent double prefixing if it's already prefixed
