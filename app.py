@@ -3477,5 +3477,5 @@ if __name__ == '__main__':
     init_all_users()
     
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
-    port = int(os.getenv('EKKU_PORT', 5000))
-    app.run(debug=True, host='127.0.0.1', port=port)
+    port = int(os.getenv('PORT', os.getenv('EKKU_PORT', 5000)))
+    app.run(debug=False, host='0.0.0.0', port=port)
