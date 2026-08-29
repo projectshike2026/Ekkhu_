@@ -216,36 +216,38 @@
   ═════════════════════════════════════════════════════════════════ */
   #mob-dynamic-island {
     position: fixed;
-    top: 10px;
+    top: 62px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 60;
+    z-index: 35;
     background: var(--island-bg);
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
     border: 1px solid var(--border-card);
     box-shadow: var(--island-shadow);
     border-radius: 9999px;
-    transition: all 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     animation: islandPop 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
   #mob-dynamic-island.compact {
     width: auto;
-    min-width: 175px;
-    max-width: 90vw;
-    height: 38px;
-    padding: 0 14px;
+    min-width: 160px;
+    max-width: calc(100vw - 32px);
+    height: 34px;
+    padding: 0 12px;
     border-radius: 9999px;
     cursor: pointer;
   }
   #mob-dynamic-island.expanded {
+    top: 62px;
     width: calc(100vw - 28px);
-    max-width: 400px;
+    max-width: 380px;
     height: auto;
-    border-radius: 28px;
+    border-radius: 24px;
     padding: 16px;
     cursor: default;
     border-color: var(--primary);
+    z-index: 50;
   }
 
   /* ═════════════════════════════════════════════════════════════════

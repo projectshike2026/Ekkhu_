@@ -324,8 +324,8 @@ async function submitLogin() {
         if (uInp) uInp.focus();
         return;
     }
-    if (loginPinBuffer.length !== 6) {
-        if (err) { err.textContent = 'Please enter your complete 6-digit PIN.'; err.classList.remove('hidden'); }
+    if (loginPinBuffer.length < 4) {
+        if (err) { err.textContent = 'Please enter your PIN.'; err.classList.remove('hidden'); }
         shakeLoginDots();
         return;
     }
