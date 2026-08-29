@@ -5,11 +5,30 @@ import json
 import base64
 import hashlib
 import shutil
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
 import requests
 from prompt import get_system_prompt, SYSTEM_PROMPT
+
+# Bangladesh Standard Time (UTC+6)
+BD_TZ = timezone(timedelta(hours=6))
+
+def now_bd():
+    """Current datetime in Bangladesh Standard Time (UTC+6)."""
+    return datetime.now(BD_TZ)
+
+def now_bd_iso():
+    """Current ISO timestamp with timezone."""
+    return datetime.now(BD_TZ).isoformat()
+
+def today_bd_date():
+    """Current date in Bangladesh Standard Time."""
+    return datetime.now(BD_TZ).date()
+
+def today_bd_iso():
+    """Current ISO date string (YYYY-MM-DD) in Bangladesh Standard Time."""
+    return datetime.now(BD_TZ).date().isoformat()
 
 # Optional libs (graceful if missing)
 try:
@@ -771,7 +790,7 @@ def save_message(user_id, role, content, emotion=None, conn=None):
         conn = get_db(user_id)
         close_after = True
     c = conn.cursor()
-    ts = datetime.now().isoformat()
+    ts = now_bd_iso()
     clean_text = clean_chat_text(content)
     if clean_text:
         c.execute('INSERT INTO chat_history (timestamp, role, content, emotion) VALUES (?, ?, ?, ?)',
@@ -787,7 +806,7 @@ def get_chat_history(user_id, max_messages=20, conn=None):
         conn = get_db(user_id)
         close_after = True
     c = conn.cursor()
-    since = (datetime.now() - timedelta(days=7)).isoformat()
+    since = (now_bd() - timedelta(days=7)).isoformat()
     c.execute('''SELECT timestamp, role, content FROM chat_history
                  WHERE timestamp >= ?
                  ORDER BY id DESC LIMIT ?''', (since, max_messages))
@@ -828,7 +847,7 @@ def save_long_term_memory(user_id, content, category='milestone', conn=None):
         conn = get_db(user_id)
         close_after = True
     c = conn.cursor()
-    ts = datetime.now().isoformat()
+    ts = now_bd_iso()
     c.execute('INSERT INTO long_term_memory (timestamp, content, category) VALUES (?, ?, ?)',
               (ts, content, category))
     conn.commit()
@@ -856,11 +875,7 @@ def build_session_context(user_id, conn=None):
     if not rows:
         return ""
 
-    from datetime import timezone
     from collections import Counter
-    bd_tz = timezone(timedelta(hours=6))
-    now_bd = datetime.now(bd_tz)
-
     summary = "\n\n=== SESSION CONTEXT ==="
 
     # Time since last message
@@ -868,11 +883,12 @@ def build_session_context(user_id, conn=None):
     try:
         last_dt = datetime.fromisoformat(last_ts_str)
         if last_dt.tzinfo is None:
-            last_dt = last_dt.replace(tzinfo=bd_tz)
-        diff = now_bd - last_dt
-        hours = diff.total_seconds() / 3600
+            last_dt = last_dt.replace(tzinfo=BD_TZ)
+        diff = now_bd() - last_dt.astimezone(BD_TZ)
+        total_sec = max(0, diff.total_seconds())
+        hours = total_sec / 3600
         if hours < 1:
-            summary += f"\nLast conversation: {int(diff.total_seconds() / 60)} minutes ago"
+            summary += f"\nLast conversation: {int(total_sec / 60)} minutes ago"
         elif hours < 24:
             summary += f"\nLast conversation: {int(hours)} hours ago"
         else:
@@ -909,16 +925,16 @@ def is_first_message_after_gap(user_id, gap_hours=4, conn=None):
     if close_after:
         conn.close()
 
-    if not rows:
+    if not rows or not rows[0][0]:
         return False
     last_ts_str = rows[0][0]
     try:
-        from datetime import timezone
-        bd_tz = timezone(timedelta(hours=6))
         last_dt = datetime.fromisoformat(last_ts_str)
         if last_dt.tzinfo is None:
-            last_dt = last_dt.replace(tzinfo=bd_tz)
-        diff_hours = (datetime.now(bd_tz) - last_dt).total_seconds() / 3600
+            last_dt = last_dt.replace(tzinfo=BD_TZ)
+        diff_hours = (now_bd() - last_dt.astimezone(BD_TZ)).total_seconds() / 3600
+        if diff_hours < 0:
+            return False
         return diff_hours >= gap_hours
     except Exception:
         return False
@@ -2263,9 +2279,10 @@ def chat():
     # 1. Single DB connection for entire context preparation
     try:
         read_conn = get_db(user_id)
+        # Check gap between previous conversation and now BEFORE inserting current message
+        is_gap = is_first_message_after_gap(user_id, gap_hours=4, conn=read_conn)
         save_message(user_id, 'user', user_text, conn=read_conn)
         history = get_chat_history(user_id, max_messages=20, conn=read_conn)
-        is_gap = is_first_message_after_gap(user_id, gap_hours=4, conn=read_conn)
         user_ctx = get_user_context(user_id, conn=read_conn)
         sys_prompt = build_system_prompt(user_id, conn=read_conn)
         read_conn.close()
@@ -2963,7 +2980,7 @@ def summary():
     c = conn.cursor()
 
     days_map = {0:'Mon',1:'Tue',2:'Wed',3:'Thu',4:'Fri',5:'Sat',6:'Sun'}
-    today = days_map[date.today().weekday()]
+    today = days_map[today_bd_date().weekday()]
     today_routine = c.execute('SELECT * FROM routine WHERE day=? ORDER BY time', (today,)).fetchall()
     tr = [dict(r) for r in today_routine]
     for it in tr:
@@ -3007,7 +3024,7 @@ def summary():
     pending = sum(1 for r in tasks if r['done'] == 0)
     done_ct = sum(1 for r in tasks if r['done'] == 1)
 
-    today_str = date.today().isoformat()
+    today_str = today_bd_iso()
     focus_row = c.execute('SELECT SUM(total_minutes) as mins FROM focus_sessions WHERE date=?', (today_str,)).fetchone()
     today_focus_mins = focus_row['mins'] if focus_row and focus_row['mins'] else 0
 
