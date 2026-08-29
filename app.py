@@ -1021,11 +1021,212 @@ def is_crisis(text):
     return any(re.search(p, tl) for p in CRISIS_KEYWORDS)
 
 # ------------------------------------------------------------------
+# LLM Metrics, Quota & Health Tracker
+# ------------------------------------------------------------------
+import time
+from collections import deque
+from threading import Lock
+
+class LLMMetricsTracker:
+    def __init__(self, max_history=100):
+        self.lock = Lock()
+        self.max_history = max_history
+        self.history = deque(maxlen=max_history)
+        self.daily_counts = {}
+        self.timestamps = deque()
+        self.key_status = {
+            'key-1': {'status': 'healthy', 'last_error': None, 'last_used': None, 'quota_exhausted_until': 0},
+            'key-2': {'status': 'healthy', 'last_error': None, 'last_used': None, 'quota_exhausted_until': 0},
+            'groq': {'status': 'healthy', 'last_error': None, 'last_used': None}
+        }
+        self.model_limits = {
+            'gemini-3.5-flash': {'rpm': 15, 'rpd': 500, 'tpm': 1000000},
+            'gemini-3.6-flash': {'rpm': 15, 'rpd': 500, 'tpm': 1000000},
+            'gemini-3.7-flash': {'rpm': 15, 'rpd': 500, 'tpm': 1000000},
+            'gemini-3.5-flash-lite': {'rpm': 30, 'rpd': 1500, 'tpm': 1000000},
+        }
+
+    def record_call(self, endpoint, key_name, model_name, status, latency_ms, tokens_in=0, tokens_out=0, error_msg=None):
+        with self.lock:
+            now = time.time()
+            today = date.today().isoformat()
+            
+            while self.timestamps and (now - self.timestamps[0] > 60):
+                self.timestamps.popleft()
+                
+            self.timestamps.append(now)
+            
+            if today not in self.daily_counts:
+                self.daily_counts[today] = {
+                    'total': 0,
+                    'by_model': {},
+                    'by_key': {},
+                    'tokens_in': 0,
+                    'tokens_out': 0,
+                    'errors': 0
+                }
+                
+            d = self.daily_counts[today]
+            d['total'] += 1
+            d['by_model'][model_name] = d['by_model'].get(model_name, 0) + 1
+            d['by_key'][key_name] = d['by_key'].get(key_name, 0) + 1
+            d['tokens_in'] += tokens_in
+            d['tokens_out'] += tokens_out
+            
+            if status != 'SUCCESS':
+                d['errors'] += 1
+                if '429' in str(error_msg) or 'quota' in str(error_msg).lower():
+                    if key_name in self.key_status:
+                        self.key_status[key_name]['status'] = 'rate_limited'
+                        self.key_status[key_name]['quota_exhausted_until'] = now + 60
+                else:
+                    if key_name in self.key_status:
+                        self.key_status[key_name]['status'] = 'error'
+            else:
+                if key_name in self.key_status:
+                    if self.key_status[key_name]['status'] == 'rate_limited' and now > self.key_status[key_name].get('quota_exhausted_until', 0):
+                        self.key_status[key_name]['status'] = 'healthy'
+                    elif self.key_status[key_name]['status'] != 'rate_limited':
+                        self.key_status[key_name]['status'] = 'healthy'
+
+            if key_name in self.key_status:
+                self.key_status[key_name]['last_used'] = datetime.now().isoformat()
+                if error_msg:
+                    self.key_status[key_name]['last_error'] = {
+                        'time': datetime.now().isoformat(),
+                        'error': str(error_msg)[:200],
+                        'model': model_name
+                    }
+
+            entry = {
+                'id': len(self.history) + 1,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'iso_time': datetime.now().isoformat(),
+                'endpoint': endpoint,
+                'key_name': key_name,
+                'model_name': model_name,
+                'status': status,
+                'latency_ms': round(latency_ms, 1),
+                'tokens_in': tokens_in,
+                'tokens_out': tokens_out,
+                'error_msg': str(error_msg) if error_msg else None
+            }
+            self.history.appendleft(entry)
+
+    def get_stats(self):
+        with self.lock:
+            now = time.time()
+            today = date.today().isoformat()
+            
+            valid_ts = [t for t in self.timestamps if (now - t) <= 60]
+            rpm_current = len(valid_ts)
+            
+            d = self.daily_counts.get(today, {
+                'total': 0,
+                'by_model': {},
+                'by_key': {},
+                'tokens_in': 0,
+                'tokens_out': 0,
+                'errors': 0
+            })
+            
+            active_keys_count = (1 if GEMINI_API_KEY_1 else 0) + (1 if GEMINI_API_KEY_2 else 0)
+            if active_keys_count == 0: active_keys_count = 1
+            
+            primary_model = 'gemini-3.5-flash'
+            rpm_limit_single = self.model_limits.get(primary_model, {}).get('rpm', 15)
+            rpd_limit_single = self.model_limits.get(primary_model, {}).get('rpd', 500)
+            
+            total_rpm_limit = rpm_limit_single * active_keys_count
+            total_rpd_limit = rpd_limit_single * active_keys_count
+            
+            rpm_remaining = max(0, total_rpm_limit - rpm_current)
+            rpd_remaining = max(0, total_rpd_limit - d['total'])
+            
+            def mask_key(k):
+                if not k: return "Not Configured"
+                if len(k) <= 8: return "••••" + k[-4:]
+                return k[:6] + "••••••••" + k[-4:]
+
+            return {
+                "server_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "today": today,
+                "active_keys_count": active_keys_count,
+                "keys": {
+                    "key-1": {
+                        "name": "Gemini API Key 1",
+                        "configured": bool(GEMINI_API_KEY_1),
+                        "masked": mask_key(GEMINI_API_KEY_1),
+                        "status": self.key_status['key-1']['status'],
+                        "last_used": self.key_status['key-1']['last_used'],
+                        "last_error": self.key_status['key-1']['last_error'],
+                        "today_calls": d['by_key'].get('key-1', 0)
+                    },
+                    "key-2": {
+                        "name": "Gemini API Key 2",
+                        "configured": bool(GEMINI_API_KEY_2),
+                        "masked": mask_key(GEMINI_API_KEY_2),
+                        "status": self.key_status['key-2']['status'],
+                        "last_used": self.key_status['key-2']['last_used'],
+                        "last_error": self.key_status['key-2']['last_error'],
+                        "today_calls": d['by_key'].get('key-2', 0)
+                    },
+                    "groq": {
+                        "name": "Groq API Key",
+                        "configured": bool(GROQ_API_KEY),
+                        "masked": mask_key(GROQ_API_KEY),
+                        "status": self.key_status['groq']['status'],
+                        "last_used": self.key_status['groq']['last_used'],
+                        "last_error": self.key_status['groq']['last_error'],
+                        "today_calls": d['by_key'].get('groq', 0)
+                    }
+                },
+                "rpm": {
+                    "current": rpm_current,
+                    "limit": total_rpm_limit,
+                    "remaining": rpm_remaining,
+                    "percent_used": round((rpm_current / total_rpm_limit) * 100, 1) if total_rpm_limit else 0
+                },
+                "rpd": {
+                    "current": d['total'],
+                    "limit": total_rpd_limit,
+                    "remaining": rpd_remaining,
+                    "percent_used": round((d['total'] / total_rpd_limit) * 100, 1) if total_rpd_limit else 0
+                },
+                "tokens": {
+                    "tokens_in_today": d['tokens_in'],
+                    "tokens_out_today": d['tokens_out'],
+                    "total_tokens_today": d['tokens_in'] + d['tokens_out']
+                },
+                "models_usage": d['by_model'],
+                "model_limits": self.model_limits,
+                "total_errors_today": d['errors'],
+                "recent_logs": list(self.history)[:50]
+            }
+
+    def reset_today(self):
+        with self.lock:
+            today = date.today().isoformat()
+            self.daily_counts[today] = {
+                'total': 0,
+                'by_model': {},
+                'by_key': {},
+                'tokens_in': 0,
+                'tokens_out': 0,
+                'errors': 0
+            }
+            self.timestamps.clear()
+            self.history.clear()
+
+METRICS_TRACKER = LLMMetricsTracker()
+
+# ------------------------------------------------------------------
 # LLM providers
 # ------------------------------------------------------------------
-def call_groq(messages):
+def call_groq(messages, endpoint="CHAT"):
     from groq import Groq
     client = Groq(api_key=GROQ_API_KEY)
+    t0 = time.time()
     for model in ['qwen/qwen3.6-27b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b']:
         try:
             resp = client.chat.completions.create(
@@ -1036,16 +1237,20 @@ def call_groq(messages):
             )
             content = resp.choices[0].message.content
             if content:
+                lat = (time.time() - t0) * 1000
                 content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                METRICS_TRACKER.record_call(endpoint, "groq", model, "SUCCESS", lat, tokens_in=len(str(messages))//4, tokens_out=len(content)//4)
                 return content
         except Exception as e:
+            lat = (time.time() - t0) * 1000
             print(f"[GROQ] Model {model} failed: {e}")
+            METRICS_TRACKER.record_call(endpoint, "groq", model, "ERROR", lat, tokens_in=len(str(messages))//4, tokens_out=0, error_msg=str(e))
     raise Exception("All Groq models failed")
 
 class QuotaExhaustedError(Exception):
     pass
 
-def call_gemini(messages, api_key, models_to_try=None):
+def call_gemini(messages, api_key, models_to_try=None, key_name="key-1", endpoint="CHAT"):
     import google.generativeai as genai
     import json
     genai.configure(api_key=api_key)
@@ -1083,8 +1288,11 @@ def call_gemini(messages, api_key, models_to_try=None):
     if models_to_try is None:
         models_to_try = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash']
     
+    tokens_in = sum(len(p) for item in gm for p in item.get('parts', [])) // 4
     last_error = None
+
     for model_name in models_to_try:
+        t0 = time.time()
         try:
             model = genai.GenerativeModel(model_name, system_instruction=system_part)
             resp = model.generate_content(
@@ -1096,22 +1304,31 @@ def call_gemini(messages, api_key, models_to_try=None):
                 }
             )
             if resp and resp.text:
-                print(f"[GEMINI] Model {model_name} succeeded.")
+                lat = (time.time() - t0) * 1000
+                tokens_out = len(resp.text) // 4
+                METRICS_TRACKER.record_call(endpoint, key_name, model_name, "SUCCESS", lat, tokens_in=tokens_in, tokens_out=tokens_out)
+                print(f"[GEMINI] Model {model_name} succeeded on {key_name} ({round(lat,1)}ms).")
                 return resp.text
         except Exception as e:
             last_error = e
+            lat = (time.time() - t0) * 1000
             err_str = str(e)
-            print(f"[GEMINI] Model {model_name} failed: {err_str[:100]}")
+            print(f"[GEMINI] Model {model_name} on {key_name} failed ({round(lat,1)}ms): {err_str[:100]}")
+            
             # If rate limit (429) or quota exceeded, this API key is temporarily burned.
-            # Don't waste 3-5 seconds trying other models on the SAME burned key.
             if "429" in err_str or "quota" in err_str.lower():
-                print(f"[GEMINI] Quota exhausted on this key. Aborting further model attempts on this key.")
+                METRICS_TRACKER.record_call(endpoint, key_name, model_name, "429_QUOTA", lat, tokens_in=tokens_in, tokens_out=0, error_msg=err_str)
+                print(f"[GEMINI] Quota exhausted on {key_name}. Aborting further model attempts on this key.")
                 raise QuotaExhaustedError("Quota exhausted for this API key.")
-            # If model not found (404), skip retry and move to next model immediately
+            
+            # If model not found (404), record and skip
             if "404" in err_str:
+                METRICS_TRACKER.record_call(endpoint, key_name, model_name, "404_NOT_FOUND", lat, tokens_in=tokens_in, tokens_out=0, error_msg=err_str)
                 continue
+                
             # For other errors (e.g. 500, parsing), try once more without JSON response_mime_type
             try:
+                t1 = time.time()
                 model = genai.GenerativeModel(model_name, system_instruction=system_part)
                 resp = model.generate_content(
                     gm, 
@@ -1121,14 +1338,18 @@ def call_gemini(messages, api_key, models_to_try=None):
                     }
                 )
                 if resp and resp.text:
-                    print(f"[GEMINI] Model {model_name} succeeded (plain fallback).")
+                    lat_fallback = (time.time() - t1) * 1000
+                    tokens_out = len(resp.text) // 4
+                    METRICS_TRACKER.record_call(endpoint, key_name, model_name, "SUCCESS", lat_fallback, tokens_in=tokens_in, tokens_out=tokens_out)
+                    print(f"[GEMINI] Model {model_name} succeeded (plain fallback on {key_name}).")
                     return resp.text
             except Exception as e2:
+                METRICS_TRACKER.record_call(endpoint, key_name, model_name, "ERROR", lat, tokens_in=tokens_in, tokens_out=0, error_msg=f"{err_str} | Fallback: {e2}")
                 print(f"[GEMINI] Model {model_name} plain fallback also failed: {str(e2)[:80]}")
 
-    raise Exception(f"All Gemini models failed on this key. Last error: {last_error}")
+    raise Exception(f"All Gemini models failed on {key_name}. Last error: {last_error}")
 
-def call_llm(messages):
+def call_llm(messages, endpoint="CHAT"):
     """Smart cascade: Try ALL intelligent models on Key1 → Key2 before falling to lite models."""
     keys = []
     if GEMINI_API_KEY_1:
@@ -1143,10 +1364,10 @@ def call_llm(messages):
     errors = []
     for key_name, key_val in keys:
         try:
-            result = call_gemini(messages, key_val, models_to_try=smart_models)
+            result = call_gemini(messages, key_val, models_to_try=smart_models, key_name=key_name, endpoint=endpoint)
             print(f"[LLM] Smart model succeeded on {key_name}.")
             return result
-        except QuotaExhaustedError as e:
+        except QuotaExhaustedError:
             errors.append(f"{key_name}-smart: Quota Exhausted")
             print(f"[LLM] Quota exhausted on {key_name}, instantly switching to next key...")
         except Exception as e:
@@ -1157,7 +1378,7 @@ def call_llm(messages):
     lite_models = ['gemini-3.5-flash-lite']
     for key_name, key_val in keys:
         try:
-            result = call_gemini(messages, key_val, models_to_try=lite_models)
+            result = call_gemini(messages, key_val, models_to_try=lite_models, key_name=key_name, endpoint=endpoint)
             print(f"[LLM] Lite fallback succeeded on {key_name}.")
             return result
         except Exception as e:
@@ -1855,6 +2076,73 @@ def test_chat():
     except Exception as e:
         import traceback
         return traceback.format_exc(), 500
+
+# ------------------------------------------------------------------
+# Routes — Dedicated Admin & AI Quota / Error Diagnostics Dashboard
+# ------------------------------------------------------------------
+@app.route('/admin')
+@app.route('/udmin')
+def admin_dashboard():
+    """AI Rate-Limit, Token & Multi-Key Health Monitoring Dashboard."""
+    return render_template('admin.html')
+
+@app.route('/api/admin/metrics', methods=['GET'])
+def api_admin_metrics():
+    """Return real-time RPM, RPD, Token counts, and recent error traces."""
+    return jsonify(METRICS_TRACKER.get_stats())
+
+@app.route('/api/admin/reset_metrics', methods=['POST'])
+def api_admin_reset_metrics():
+    """Reset today's counters and event logs."""
+    METRICS_TRACKER.reset_today()
+    return jsonify({"ok": True, "message": "Metrics reset successfully."})
+
+@app.route('/api/admin/test_ping', methods=['POST'])
+def api_admin_test_ping():
+    """Ping all Gemini models on all configured keys to diagnose live availability & latency."""
+    import google.generativeai as genai
+    import time
+    
+    test_models = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite']
+    keys = []
+    if GEMINI_API_KEY_1: keys.append(('Key 1 (Primary)', 'key-1', GEMINI_API_KEY_1))
+    if GEMINI_API_KEY_2: keys.append(('Key 2 (Backup)', 'key-2', GEMINI_API_KEY_2))
+    
+    results = []
+    for key_label, key_name, key_val in keys:
+        genai.configure(api_key=key_val)
+        for model_name in test_models:
+            t0 = time.time()
+            try:
+                model = genai.GenerativeModel(model_name)
+                resp = model.generate_content("Ping. Reply with 'PONG'.", generation_config={"max_output_tokens": 10})
+                lat = round((time.time() - t0) * 1000, 1)
+                txt = resp.text.strip() if resp and resp.text else "OK"
+                METRICS_TRACKER.record_call("DIAGNOSTIC_PING", key_name, model_name, "SUCCESS", lat, tokens_in=5, tokens_out=2)
+                results.append({
+                    "model": model_name,
+                    "key_name": key_label,
+                    "status": "SUCCESS",
+                    "latency_ms": lat,
+                    "message": f"Online & Ready ({txt})"
+                })
+            except Exception as e:
+                lat = round((time.time() - t0) * 1000, 1)
+                err_str = str(e)
+                status_code = "429_QUOTA" if ("429" in err_str or "quota" in err_str.lower()) else "404_NOT_FOUND" if "404" in err_str else "ERROR"
+                METRICS_TRACKER.record_call("DIAGNOSTIC_PING", key_name, model_name, status_code, lat, tokens_in=5, tokens_out=0, error_msg=err_str)
+                results.append({
+                    "model": model_name,
+                    "key_name": key_label,
+                    "status": status_code,
+                    "latency_ms": lat,
+                    "message": err_str[:120]
+                })
+                # If 429 quota on this key, skip further models on this key to avoid redundant lag
+                if "429" in err_str or "quota" in err_str.lower():
+                    break
+
+    return jsonify({"ok": True, "results": results})
 
 # ------------------------------------------------------------------
 # Routes — TTS Debug (helps diagnose PythonAnywhere whitelist/network issues)
@@ -3409,7 +3697,7 @@ def generate_flashcards_api():
         raw_res = call_llm([
             {"role": "system", "content": prompt},
             {"role": "user", "content": f"Topic: {topic}\nMaterial/Notes: {content[:3000]}"}
-        ])
+        ], endpoint="FLASHCARDS")
         clean = raw_res.strip()
         if clean.startswith('```json'): clean = clean[7:]
         elif clean.startswith('```'): clean = clean[3:]
