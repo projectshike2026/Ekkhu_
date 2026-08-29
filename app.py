@@ -947,7 +947,7 @@ def build_system_prompt(user_id, conn=None):
     ltm = get_long_term_memory(user_id, conn=conn)
 
     # ALWAYS fetch Arnob's (u1's) training memories so they apply as global rules for everyone
-    arnob_ltm = get_long_term_memory('u1', conn=conn) if user_id != 'u1' else []
+    arnob_ltm = get_long_term_memory('u1') if user_id != 'u1' else []
 
     if ltm or arnob_ltm:
         prompt += "\n\n=== IMPORTANT LONG-TERM MEMORIES & CORE TRAINING — never forget these ===\n"
@@ -966,8 +966,9 @@ def build_system_prompt(user_id, conn=None):
     prompt += build_session_context(user_id, conn=conn)
 
     # Add Academic Profile Standing Context
+    prof_conn = conn or get_db(user_id)
     try:
-        c_prof = conn.cursor() if conn else get_db(user_id).cursor()
+        c_prof = prof_conn.cursor()
         prof_row = c_prof.execute('SELECT * FROM academic_profile WHERE id=1').fetchone()
         if prof_row:
             cur_sem = decrypt_text(prof_row['current_semester']) if prof_row['current_semester'] else '6th Semester'
@@ -987,6 +988,12 @@ def build_system_prompt(user_id, conn=None):
             prompt += f"- Keep this academic standing in mind when advising on exams, semester prep, study load, or career planning."
     except Exception:
         pass
+    finally:
+        if not conn and prof_conn:
+            try:
+                prof_conn.close()
+            except Exception:
+                pass
 
     return prompt
 
@@ -1013,14 +1020,21 @@ def is_crisis(text):
 def call_groq(messages):
     from groq import Groq
     client = Groq(api_key=GROQ_API_KEY)
-    resp = client.chat.completions.create(
-        messages=messages,
-        model="llama3-70b-8192",
-        response_format={"type": "json_object"},
-        temperature=0.7,
-        max_tokens=1024
-    )
-    return resp.choices[0].message.content
+    for model in ['qwen/qwen3.6-27b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b']:
+        try:
+            resp = client.chat.completions.create(
+                messages=messages,
+                model=model,
+                temperature=0.7,
+                max_tokens=1500
+            )
+            content = resp.choices[0].message.content
+            if content:
+                content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                return content
+        except Exception as e:
+            print(f"[GROQ] Model {model} failed: {e}")
+    raise Exception("All Groq models failed")
 
 def call_gemini(messages, api_key):
     import google.generativeai as genai
@@ -1029,11 +1043,13 @@ def call_gemini(messages, api_key):
     gm = []
     system_part = SYSTEM_PROMPT
     for m in messages:
-        if m['role'] == 'system':
-            system_part = m['content']
+        if m.get('role') == 'system':
+            system_part = m.get('content', '')
             continue
-        role = 'model' if m['role'] == 'assistant' else 'user'
-        content = m['content']
+        role = 'model' if m.get('role') == 'assistant' else 'user'
+        content = (m.get('content') or '').strip()
+        if not content:
+            continue
         
         if role == 'model':
             # Simplified mock JSON for context to avoid huge token padding
@@ -1043,8 +1059,21 @@ def call_gemini(messages, api_key):
             }
             content = json.dumps(mock_json)
             
-        gm.append({'role': role, 'parts': [content]})
-    for model_name in ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash']:
+        if gm and gm[-1]['role'] == role:
+            gm[-1]['parts'][0] += "\n" + content
+        else:
+            gm.append({'role': role, 'parts': [content]})
+
+    # Ensure first message is from user
+    while gm and gm[0]['role'] != 'user':
+        gm.pop(0)
+
+    if not gm:
+        gm = [{'role': 'user', 'parts': ['Hello']}]
+
+    models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
+    last_error = None
+    for model_name in models_to_try:
         try:
             model = genai.GenerativeModel(model_name, system_instruction=system_part)
             resp = model.generate_content(
@@ -1055,21 +1084,36 @@ def call_gemini(messages, api_key):
                     "max_output_tokens": 3500
                 }
             )
-            return resp.text
+            if resp and resp.text:
+                return resp.text
         except Exception as e:
+            last_error = e
             print(f"Gemini model {model_name} failed: {e}")
-    raise Exception("All Gemini models failed")
+            try:
+                model = genai.GenerativeModel(model_name, system_instruction=system_part)
+                resp = model.generate_content(
+                    gm, 
+                    generation_config={
+                        "temperature": 0.7,
+                        "max_output_tokens": 3500
+                    }
+                )
+                if resp and resp.text:
+                    return resp.text
+            except Exception as e2:
+                print(f"Gemini model {model_name} standard fallback failed: {e2}")
+
+    raise Exception(f"All Gemini models failed. Last error: {last_error}")
 
 def call_llm(messages):
-    """Priority: Gemini Key 1 → Gemini Key 2 (Groq disabled)"""
+    """Priority: Gemini Key 1 → Gemini Key 2 → Groq fallback"""
     providers = []
     if GEMINI_API_KEY_1:
         providers.append(('gemini-1', lambda: call_gemini(messages, GEMINI_API_KEY_1)))
     if GEMINI_API_KEY_2:
         providers.append(('gemini-2', lambda: call_gemini(messages, GEMINI_API_KEY_2)))
-    # Groq disabled — uncomment below to re-enable:
-    # if GROQ_API_KEY:
-    #     providers.append(('groq', lambda: call_groq(messages)))
+    if GROQ_API_KEY:
+        providers.append(('groq', lambda: call_groq(messages)))
     if not providers:
         raise Exception("No API keys set! Set GEMINI_API_KEY_1 in environment variables.")
     errors = []
@@ -1239,9 +1283,6 @@ def get_user_context(user_id, conn=None):
     # Budget
     curr_month = now.strftime('%Y-%m')
     budget = c.execute('SELECT * FROM budget WHERE date LIKE ?', (f"{curr_month}%",)).fetchall()
-    
-    if close_after:
-        conn.close()
 
     # Workload & Situational Classification
     has_urgent = len(overdue_tasks) > 0 or any(t.get('priority') == 'urgent' for t in today_tasks)
@@ -1371,6 +1412,9 @@ def get_user_context(user_id, conn=None):
     
     ctx += "- ALWAYS PROACTIVELY INQUIRE about active tasks in a natural, friendly friend style (e.g. 'আচ্ছা, তোর ওই টাস্কটা শেষ হইসে?'). Never sound like a robotic corporate assistant.\n"
     ctx += "══════════════════════════════════════════════════\n"
+
+    if close_after:
+        conn.close()
 
     return ctx
 
@@ -1554,7 +1598,7 @@ def transcribe_audio_bytes(audio_bytes, mime='audio/webm'):
                 "2. Do NOT add quotation marks, commentary, notes, or translations. "
                 "3. Perfectly capture colloquial spoken phrases (e.g. কি করছো তুমি, ঘুমাও না কেনো, কেমন আছো, কি অবস্থা, ভাই, দোস্ত, কাজ, রুটিন, অ্যাসাইনমেন্ট)."
             )
-            for model_name in ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash']:
+            for model_name in ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']:
                 try:
                     model = genai.GenerativeModel(model_name)
                     resp = model.generate_content([
@@ -2209,7 +2253,7 @@ def routine_parse_api():
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=key)
-                for model_name in ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']:
+                for model_name in ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']:
                     try:
                         model = genai.GenerativeModel(model_name)
                         clean_mime = 'image/jpeg' if 'jpeg' in mime_type or 'jpg' in mime_type else 'image/png' if 'png' in mime_type else 'image/webp' if 'webp' in mime_type else 'image/png'

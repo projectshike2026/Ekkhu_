@@ -609,6 +609,8 @@ function showView(name) {
     const target = document.getElementById('view-' + name);
     if (target) target.classList.add('active');
 
+    document.body.classList.toggle('view-chat-active', name === 'chat');
+
     // Sidebar Nav Highlight (Desktop)
     document.querySelectorAll('.nav-item').forEach(el => {
         const isActive = el.dataset.view === name;
@@ -633,6 +635,10 @@ function showView(name) {
             }, 60);
         } else {
             loadMobileChatHistory();
+            setTimeout(() => {
+                const cont = document.getElementById('chat-messages');
+                if (cont) cont.scrollTop = cont.scrollHeight;
+            }, 80);
         }
     }
     if (name === 'dashboard') {

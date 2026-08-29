@@ -815,6 +815,55 @@
   }
 
   .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
+
+  /* ── Mobile Chat Dedicated Viewport & Input Bar Fix ── */
+  @media (max-width: 767px) {
+    body.view-chat-active #app-main-scroll {
+      overflow: hidden !important;
+      padding: 6px 8px calc(76px + env(safe-area-inset-bottom, 6px)) 8px !important;
+      height: calc(100dvh - 56px) !important;
+      height: calc(100vh - 56px) !important;
+    }
+    #view-chat.active {
+      display: flex !important;
+      flex-direction: column !important;
+      height: 100% !important;
+      min-height: 0 !important;
+    }
+    #view-chat .md\:hidden {
+      height: 100% !important;
+      flex: 1 1 0% !important;
+      min-height: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+    #mobile-chat-card {
+      height: 100% !important;
+      flex: 1 1 0% !important;
+      min-height: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+    #mob-text-view {
+      height: 100% !important;
+      flex: 1 1 0% !important;
+      min-height: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+    #chat-messages {
+      flex: 1 1 0% !important;
+      min-height: 0 !important;
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch;
+    }
+    .chat-input-bar {
+      border-radius: 9999px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+  }
 </style>
 </head>
 <body class="antialiased overflow-hidden text-sm select-none">
@@ -1708,8 +1757,8 @@
     <!-- ====== VIEW: EKKHU AI CHAT ====== -->
     <div id="view-chat" class="view h-full">
       <!-- Mobile Chat -->
-      <div class="md:hidden h-[calc(100vh-56px-76px)] flex flex-col">
-        <div id="mobile-chat-card" class="glass-card rounded-2xl overflow-hidden flex-1 flex flex-col">
+      <div class="md:hidden h-full flex flex-col min-h-0">
+        <div id="mobile-chat-card" class="glass-card rounded-2xl overflow-hidden flex-1 flex flex-col min-h-0">
           <div class="flex items-center justify-between px-3.5 py-2.5 border-b shrink-0" style="border-color:var(--border-subtle)">
             <div class="flex items-center gap-2">
               <div class="w-7 h-7 rounded-xl flex items-center justify-center text-white shadow-md" style="background:var(--gradient-btn)">
@@ -1731,12 +1780,12 @@
           <!-- TEXT MODE (Mobile) -->
           <div id="mob-text-view" class="flex-1 flex flex-col min-h-0">
             <div class="flex-1 overflow-y-auto p-3.5 space-y-3" id="chat-messages" style="min-height:0"></div>
-            <div class="shrink-0 p-2.5">
+            <div class="shrink-0 p-2.5 pb-2">
               <div class="chat-input-bar py-1.5 px-2.5">
                 <button id="mic-btn" onclick="toggleMic()" class="w-8 h-8 rounded-full flex items-center justify-center text-muted hover:text-primary hover:bg-primary/10 transition-all shrink-0" title="Voice Input">
                   <span class="material-symbols-outlined text-[19px]" id="mic-icon">mic</span>
                 </button>
-                <input id="chat-input" class="chat-input-textarea flex-1 py-1" placeholder="Ask Ekkhu anything..." type="text"/>
+                <input id="chat-input" class="chat-input-textarea flex-1 py-1 text-sm" placeholder="Ask Ekkhu anything..." type="text" autocomplete="off"/>
                 <button onclick="sendChat()" class="cyber-glow-btn text-white rounded-full w-8 h-8 flex items-center justify-center shadow-md shrink-0 hover:scale-105 transition-all" title="Send message">
                   <span class="material-symbols-outlined text-[15px] translate-x-0.5">send</span>
                 </button>
