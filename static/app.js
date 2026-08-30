@@ -2942,6 +2942,41 @@ function executeClientActions(actions) {
     });
 }
 
+// ── Client-Side Intelligent Timer Intent Fallback ───────────────────
+function checkAndTriggerClientTimerFallback(text) {
+    if (!text || typeof text !== 'string') return;
+    const lower = text.toLowerCase();
+    const isTimer = lower.includes('timer') || lower.includes('টাইমার') || lower.includes('ন্যাপ') || lower.includes('nap') || lower.includes('stopwatch') || lower.includes('স্টপওয়াচ') || lower.includes('স্টপওয়াচ');
+    if (!isTimer) return;
+
+    if (lower.includes('stop') || lower.includes('বন্ধ') || lower.includes('থামাও') || lower.includes('অফ')) {
+        executeClientActions([{ type: 'stop_timer' }]);
+        return;
+    }
+    if (lower.includes('stopwatch') || lower.includes('স্টপওয়াচ') || lower.includes('স্টপওয়াচ')) {
+        executeClientActions([{ type: 'start_stopwatch', task: 'Activity Sprint', mode: 'stopwatch' }]);
+        return;
+    }
+
+    const bDigits = { '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9' };
+    let norm = lower;
+    for (const [bd, ed] of Object.entries(bDigits)) {
+        norm = norm.replaceAll(bd, ed);
+    }
+
+    const m = norm.match(/(\d+)\s*(?:min|minute|মিনিট|minit|m\b)/);
+    const mins = m ? parseInt(m[1], 10) : (lower.includes('ন্যাপ') || lower.includes('nap') ? 5 : 25);
+    const task = (lower.includes('ন্যাপ') || lower.includes('nap')) ? '5m Power Nap' : ((lower.includes('game') || lower.includes('গেম')) ? 'Gaming Break' : 'Focus Sprint');
+
+    executeClientActions([{
+        type: 'start_timer',
+        minutes: mins,
+        cycles: 1,
+        task: task,
+        mode: mins !== 25 ? 'custom' : 'focus'
+    }]);
+}
+
 // ─── Ekkhu PA Assistant Focus Engine Handlers ────────────────────
 async function requestPABriefing(stage = 'idle', userQuery = '') {
     const modalInput = document.getElementById('pomo-task-label');
@@ -4282,8 +4317,10 @@ async function sendChat() {
             return;
         }
 
-        if (data.actions && Array.isArray(data.actions)) {
+        if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
             executeClientActions(data.actions);
+        } else {
+            checkAndTriggerClientTimerFallback(msg);
         }
 
         await renderStaggeredReply(data.reply, data.emotion, desktop, data.tts_text);
@@ -4519,8 +4556,10 @@ async function sendVoiceChat(msg) {
 
         setVoiceUIState('speaking');
 
-        if (data.actions && Array.isArray(data.actions)) {
+        if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
             executeClientActions(data.actions);
+        } else {
+            checkAndTriggerClientTimerFallback(msg);
         }
 
         const msgs = Array.isArray(data.reply) ? data.reply : [data.reply];

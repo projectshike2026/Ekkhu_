@@ -3163,6 +3163,41 @@ def chat():
         else:
             tts_text = " ".join(reply_data)
 
+        # Deterministic Intent Fallback / Reinforcement for Timer/Stopwatch
+        user_lower = (user_text or "").lower()
+        has_timer_kw = any(w in user_lower for w in ["timer", "টাইমার", "ন্যাপ", "nap", "countdown", "স্টপওয়াচ", "স্টপওয়াচ", "stopwatch"])
+
+        if has_timer_kw:
+            has_timer_act = any(a.get("type") in ["start_timer", "start_stopwatch", "stop_timer"] for a in actions if isinstance(a, dict))
+            if not has_timer_act:
+                bengali_digits = {'০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9'}
+                clean_text_num = user_lower
+                for b_d, e_d in bengali_digits.items():
+                    clean_text_num = clean_text_num.replace(b_d, e_d)
+                
+                m_mins = re.search(r'(\d+)\s*(?:min|minute|মিনিট|minit)', clean_text_num)
+                if m_mins:
+                    mins = int(m_mins.group(1))
+                    task_name = "5m Power Nap" if ("ন্যাপ" in user_lower or "nap" in user_lower) else ("Gaming Break" if "game" in user_lower or "গেম" in user_lower else "Focus Sprint")
+                    actions.append({
+                        "type": "start_timer",
+                        "minutes": mins,
+                        "cycles": 1,
+                        "task": task_name,
+                        "mode": "custom" if mins != 25 else "focus"
+                    })
+                elif "stopwatch" in user_lower or "স্টপওয়াচ" in user_lower or "স্টপওয়াচ" in user_lower:
+                    actions.append({
+                        "type": "start_stopwatch",
+                        "task": "Activity Sprint",
+                        "mode": "stopwatch"
+                    })
+                elif "stop" in user_lower or "বন্ধ" in user_lower or "থামাও" in user_lower:
+                    actions.append({
+                        "type": "stop_timer",
+                        "task": "Focus Session"
+                    })
+
         # Single DB write session for saving response, memory, and actions
         write_conn = get_db(user_id)
         c = write_conn.cursor()
