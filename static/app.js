@@ -2956,6 +2956,19 @@ function updatePomodoroDisplay() {
     if (modalText) modalText.textContent = pomoIsRunning ? 'Pause Session' : (pomoMode === 'stopwatch' ? (pomoStopwatchSeconds > 0 ? 'Resume Stopwatch' : 'Start Stopwatch') : (pomoCyclesDone > 0 ? `Resume Cycle ${pomoCyclesDone+1}` : 'Start Focus'));
     if (mainIcon) mainIcon.textContent = pomoIsRunning ? 'pause' : 'play_arrow';
 
+    // Check for overrun/forgotten stopwatch (> 12 hours)
+    const overrunBanner = document.getElementById('pomo-overrun-banner');
+    if (overrunBanner) {
+        if (pomoMode === 'stopwatch' && pomoStopwatchSeconds >= 12 * 3600) {
+            overrunBanner.classList.remove('hidden');
+            const ovTitle = document.getElementById('pomo-overrun-title');
+            const ovHours = (pomoStopwatchSeconds / 3600).toFixed(1);
+            if (ovTitle) ovTitle.textContent = `Stopwatch Running for ${ovHours} Hours`;
+        } else {
+            overrunBanner.classList.add('hidden');
+        }
+    }
+
     // Update cycle indicator in card
     const cycleInfo = document.getElementById('pomo-cycle-info');
     if (cycleInfo) {
@@ -3054,6 +3067,17 @@ function executeClientActions(actions) {
                 toast(`Timer is not running`, 'info');
             }
             playHaptic('pop');
+
+        } else if (atype === 'adjust_focus_session') {
+            const task = action.task || 'Sleep Tracking';
+            const mins = parseInt(action.minutes, 10) || 480;
+            const hrs = (mins / 60).toFixed(1);
+            stopSoftAlarm();
+            pausePomodoroTimer();
+            clearTimerPersistence();
+            toast(`✅ Ekkhu adjusted record to ${hrs} hrs (${mins}m) for "${task}"!`, 'success');
+            if (typeof loadFocusStats === 'function') loadFocusStats();
+            playHaptic('success');
         }
     });
 }
@@ -3065,14 +3089,24 @@ function parseClientTimerDuration(text) {
     const bDigits = { '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9' };
     for (const [bd, ed] of Object.entries(bDigits)) t = t.replaceAll(bd, ed);
 
-    const m = t.match(/(\d+)\s*(?:min|minute|মিনিট|minit|mnt|m\b|ঘণ্টা|ghonta|hour|hr)/);
+    const mHr = t.match(/(\d+)\s*(?:ghonta|ঘণ্টা|hour|hr|h\b)/);
+    if (mHr) {
+        return parseInt(mHr[1], 10) * 60;
+    }
+
+    const m = t.match(/(\d+)\s*(?:min|minute|মিনিট|minit|mnt|m\b)/);
     if (m) {
-        let val = parseInt(m[1], 10);
-        if (/(\d+)\s*(?:ঘণ্টা|ghonta|hour|hr)/.test(t)) val *= 60;
-        return val;
+        return parseInt(m[1], 10);
     }
 
     const wordMap = [
+        [['sat ghonta', 'সাত ঘণ্টা', '7 hour', '7 hours', '7 hr', '7 ghonta'], 420],
+        [['at ghonta', 'আট ঘণ্টা', '8 hour', '8 hours', '8 hr', '8 ghonta'], 480],
+        [['choy ghonta', 'ছয় ঘণ্টা', 'ছয় ঘণ্টা', '6 hour', '6 hours', '6 hr'], 360],
+        [['pach ghonta', 'পাঁচ ঘণ্টা', '5 hour', '5 hours', '5 hr'], 300],
+        [['char ghonta', 'চার ঘণ্টা', '4 hour', '4 hours', '4 hr'], 240],
+        [['tin ghonta', 'তিন ঘণ্টা', '3 hour', '3 hours', '3 hr'], 180],
+        [['dui ghonta', 'দুই ঘণ্টা', '2 hour', '2 hours', '2 hr'], 120],
         [['ek ghonta', 'এক ঘণ্টা', '1 hour', '1 hr'], 60],
         [['adho ghonta', 'আধ ঘণ্টা', 'half hour'], 30],
         [['pochish', 'পঁচিশ'], 25],
@@ -3091,7 +3125,7 @@ function parseClientTimerDuration(text) {
         for (const w of words) {
             const reg = new RegExp(`\\b${w}\\b`, 'i');
             if (reg.test(t)) {
-                if (['min', 'mnt', 'মিনিট', 'timer', 'টাইমার', 'ন্যাপ', 'nap', 'ঘণ্টা', 'hour'].some(k => t.includes(k))) {
+                if (['min', 'mnt', 'মিনিট', 'timer', 'টাইমার', 'ন্যাপ', 'nap', 'ঘণ্টা', 'hour', 'ঘুম', 'ghum', 'sleep', 'ফলস', 'ভুলে'].some(k => t.includes(k))) {
                     return mins;
                 }
             }
@@ -3107,6 +3141,20 @@ function checkAndTriggerClientTimerFallback(text) {
     const isTimer = lower.includes('timer') || lower.includes('টাইমার') || lower.includes('ন্যাপ') || lower.includes('nap') || lower.includes('stopwatch') || lower.includes('স্টপওয়াচ') || lower.includes('স্টপওয়াচ') || lower.includes('mnt') || lower.includes('min') || lower.includes('মিনিট') || lower.includes('ghum') || lower.includes('ঘুম') || lower.includes('sleep');
     if (!isTimer) return;
 
+    // Check for correction / trim intent
+    const isAdjust = lower.includes('ভুলে') || lower.includes('ফলস') || lower.includes('false') || lower.includes('ঠিক করো') || lower.includes('adjust') || lower.includes('বাদ দাও');
+    const parsedMins = parseClientTimerDuration(lower);
+
+    if (isAdjust && parsedMins) {
+        const isSleep = lower.includes('ঘুম') || lower.includes('ghum') || lower.includes('sleep');
+        executeClientActions([{
+            type: 'adjust_focus_session',
+            minutes: parsedMins,
+            task: isSleep ? 'Sleep Tracking' : 'Activity Sprint'
+        }]);
+        return;
+    }
+
     if (lower.includes('stop') || lower.includes('বন্ধ') || lower.includes('থামাও') || lower.includes('অফ')) {
         executeClientActions([{ type: 'stop_timer' }]);
         return;
@@ -3121,7 +3169,6 @@ function checkAndTriggerClientTimerFallback(text) {
         return;
     }
 
-    const parsedMins = parseClientTimerDuration(lower);
     if (parsedMins === null && !lower.includes('timer') && !lower.includes('টাইমার') && !lower.includes('ন্যাপ') && !lower.includes('nap')) return;
 
     const mins = parsedMins !== null ? parsedMins : (lower.includes('ন্যাপ') || lower.includes('nap') ? 5 : 25);
@@ -3306,6 +3353,271 @@ function speakPABriefing() {
     } else {
         requestPABriefing('idle');
     }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  EKKHU ACTIVITY & FOCUS ANALYTICS + HISTORY MANAGEMENT ENGINE
+// ════════════════════════════════════════════════════════════════
+let focusWeeklyChartInstance = null;
+let focusTaskChartInstance = null;
+
+async function loadFocusStats() {
+    try {
+        const [statsRes, historyRes] = await Promise.all([
+            fetch('/api/focus/stats', { headers: { 'X-Session-Token': sessionToken || '' } }),
+            fetch('/api/focus/history', { headers: { 'X-Session-Token': sessionToken || '' } })
+        ]);
+        const stats = await statsRes.json();
+        const history = await historyRes.json();
+
+        // 1. Update Totals
+        const totalMins = (stats && stats.totals && stats.totals.total_minutes) || 0;
+        const totalSessions = (stats && stats.totals && stats.totals.total_sessions) || 0;
+        const totalCycles = (stats && stats.totals && stats.totals.total_cycles) || 0;
+
+        const mEl = document.getElementById('focus-total-minutes');
+        const sEl = document.getElementById('focus-total-sessions');
+        const cEl = document.getElementById('focus-total-cycles');
+        if (mEl) mEl.textContent = totalMins >= 60 ? `${(totalMins/60).toFixed(1)}h` : `${totalMins}m`;
+        if (sEl) sEl.textContent = totalSessions;
+        if (cEl) cEl.textContent = totalCycles;
+
+        // 2. Render Weekly Chart
+        if (window.Chart && document.getElementById('focus-weekly-chart') && stats && stats.weekly) {
+            const ctx = document.getElementById('focus-weekly-chart').getContext('2d');
+            const labels = stats.weekly.map(w => {
+                const d = new Date(w.date + 'T00:00:00');
+                return d.toLocaleDateString([], { weekday: 'short' });
+            });
+            const data = stats.weekly.map(w => w.mins || 0);
+
+            if (focusWeeklyChartInstance) focusWeeklyChartInstance.destroy();
+            focusWeeklyChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels.length ? labels : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    datasets: [{
+                        label: 'Minutes',
+                        data: data.length ? data : [0, 0, 0, 0, 0, 0, 0],
+                        backgroundColor: 'rgba(175, 16, 26, 0.75)',
+                        borderColor: '#af101a',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        // 3. Render Top Tasks Breakdown
+        if (window.Chart && document.getElementById('focus-task-chart') && stats && stats.tasks) {
+            const ctx = document.getElementById('focus-task-chart').getContext('2d');
+            const labels = stats.tasks.map(t => t.task_label || 'General');
+            const data = stats.tasks.map(t => t.mins || 0);
+
+            if (focusTaskChartInstance) focusTaskChartInstance.destroy();
+            focusTaskChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels.length ? labels : ['No Activities Yet'],
+                    datasets: [{
+                        data: data.length ? data : [1],
+                        backgroundColor: [
+                            '#af101a', '#e11d48', '#f59e0b', '#10b981', '#06b6d4', '#6366f1', '#8b5cf6'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } }
+                }
+            });
+        }
+
+        // 4. Render Recent Session List with Edit and Delete
+        renderFocusRecentList(Array.isArray(history) ? history : []);
+
+    } catch (e) {
+        console.warn('[Focus Stats] Load failed:', e);
+    }
+}
+
+function getSessionCategoryBadge(taskName) {
+    const lower = (taskName || '').toLowerCase();
+    if (lower.includes('sleep') || lower.includes('ঘুম') || lower.includes('nap') || lower.includes('ন্যাপ') || lower.includes('rest') || lower.includes('বিশ্রাম')) {
+        return { label: 'Sleep / Rest', icon: 'bedtime', cls: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' };
+    }
+    if (lower.includes('code') || lower.includes('dev') || lower.includes('python') || lower.includes('js') || lower.includes('lab') || lower.includes('coding')) {
+        return { label: 'Coding / Dev', icon: 'terminal', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+    }
+    if (lower.includes('break') || lower.includes('ব্রেক') || lower.includes('tea') || lower.includes('coffee') || lower.includes('পানি')) {
+        return { label: 'Break / Refresh', icon: 'coffee', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+    }
+    if (lower.includes('game') || lower.includes('গেম') || lower.includes('play')) {
+        return { label: 'Gaming', icon: 'sports_esports', cls: 'text-purple-400 bg-purple-500/10 border-purple-500/20' };
+    }
+    if (lower.includes('study') || lower.includes('read') || lower.includes('math') || lower.includes('cse') || lower.includes('exam') || lower.includes('পড়া') || lower.includes('পড়াশোনা')) {
+        return { label: 'Study / Sprint', icon: 'menu_book', cls: 'text-primary bg-primary/10 border-primary/20' };
+    }
+    return { label: 'Activity', icon: 'schedule', cls: 'text-sky-400 bg-sky-500/10 border-sky-500/20' };
+}
+
+function renderFocusRecentList(sessions) {
+    const list = document.getElementById('focus-recent-list');
+    if (!list) return;
+
+    if (!sessions || sessions.length === 0) {
+        list.innerHTML = `
+            <div class="p-4 rounded-2xl cyber-pill text-center text-muted text-xs font-medium">
+                No activity logs recorded yet. Start a timer or click "+ Log Past Activity".
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = sessions.map(s => {
+        const mins = s.total_minutes || 0;
+        const durStr = mins >= 60 ? `${(mins/60).toFixed(1)} hrs (${mins}m)` : `${mins} mins`;
+        const cat = getSessionCategoryBadge(s.task_label);
+        const taskLabel = s.task_label || 'General / Uncategorized';
+
+        return `
+            <div class="glass-card rounded-2xl p-3 flex items-center justify-between gap-3 group hover:border-primary transition-all">
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
+                        <span class="text-[9px] font-bold px-2 py-0.5 rounded-md border font-mono flex items-center gap-1 ${cat.cls}">
+                            <span class="material-symbols-outlined text-[11px]">${cat.icon}</span> ${cat.label}
+                        </span>
+                        <span class="text-[10px] font-mono font-bold text-primary">${durStr}</span>
+                        <span class="text-[9px] text-muted font-mono">${s.date || 'Today'}</span>
+                    </div>
+                    <p class="text-xs font-bold text-main truncate">${escapeHtml(taskLabel)}</p>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                    <button onclick="openEditFocusModal(${s.id}, '${escapeHtml(taskLabel)}', ${mins}, '${s.date || ''}')" class="text-muted hover:text-primary p-1.5 rounded-xl transition-colors" title="Edit session details">
+                        <span class="material-symbols-outlined text-[15px]">edit</span>
+                    </button>
+                    <button onclick="deleteFocusSession(${s.id})" class="text-muted hover:text-rose-500 p-1.5 rounded-xl transition-colors" title="Delete session log">
+                        <span class="material-symbols-outlined text-[15px]">delete</span>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function deleteFocusSession(id) {
+    if (!confirm('Are you sure you want to delete this session log?')) return;
+    playHaptic('tap');
+    try {
+        await fetch(`/api/focus/session/${id}`, {
+            method: 'DELETE',
+            headers: { 'X-Session-Token': sessionToken || '' }
+        });
+        toast('Session log deleted', 'info');
+        loadFocusStats();
+    } catch (e) {
+        toast('Failed to delete session', 'error');
+    }
+}
+
+function openEditFocusModal(id, task, mins, dateStr) {
+    playHaptic('tap');
+    MODAL_ACTION = 'edit_focus_session';
+    document.getElementById('modal-title').textContent = 'Edit Activity / Focus Log';
+    document.getElementById('modal-body').innerHTML = `
+        <div>
+            <label class="block text-[11px] font-bold uppercase text-muted mb-1">Activity / Task Label</label>
+            <input id="f-edit-task" value="${escapeHtml(task)}" placeholder="e.g. Sleep Tracking, DBMS Study..." class="light-input text-xs"/>
+        </div>
+        <div class="grid grid-cols-2 gap-2.5">
+            <div>
+                <label class="block text-[11px] font-bold uppercase text-muted mb-1">Duration (Minutes)</label>
+                <input id="f-edit-mins" type="number" min="1" max="1440" value="${mins}" class="light-input text-xs font-mono font-bold"/>
+            </div>
+            <div>
+                <label class="block text-[11px] font-bold uppercase text-muted mb-1">Date</label>
+                <input id="f-edit-date" type="date" value="${dateStr || new Date().toISOString().split('T')[0]}" class="light-input text-xs font-mono font-bold"/>
+            </div>
+        </div>
+        <div class="flex gap-2 pt-2 flex-wrap">
+            <button type="button" onclick="document.getElementById('f-edit-mins').value = 420; document.getElementById('f-edit-task').value = 'Sleep Tracking';" class="cyber-pill px-2.5 py-1 rounded-lg text-[10px] font-bold text-muted hover:text-primary">7h Sleep</button>
+            <button type="button" onclick="document.getElementById('f-edit-mins').value = 480; document.getElementById('f-edit-task').value = 'Sleep Tracking';" class="cyber-pill px-2.5 py-1 rounded-lg text-[10px] font-bold text-muted hover:text-primary">8h Sleep</button>
+            <button type="button" onclick="document.getElementById('f-edit-mins').value = 25; document.getElementById('f-edit-task').value = 'Focus Sprint';" class="cyber-pill px-2.5 py-1 rounded-lg text-[10px] font-bold text-muted hover:text-primary">25m Focus</button>
+        </div>
+        <input type="hidden" id="f-edit-session-id" value="${id}"/>
+    `;
+    document.getElementById('modal-overlay').classList.remove('hidden');
+}
+
+function openManualActivityModal() {
+    playHaptic('tap');
+    MODAL_ACTION = 'manual_focus_session';
+    document.getElementById('modal-title').textContent = 'Log Past Activity (Sleep, Study, Coding, Break)';
+    document.getElementById('modal-body').innerHTML = `
+        <div>
+            <label class="block text-[11px] font-bold uppercase text-muted mb-1">Activity Label</label>
+            <input id="f-manual-task" placeholder="e.g. Sleep Tracking, Deep Coding, Math Study..." class="light-input text-xs"/>
+        </div>
+        <div class="grid grid-cols-2 gap-2.5">
+            <div>
+                <label class="block text-[11px] font-bold uppercase text-muted mb-1">Duration (Minutes)</label>
+                <input id="f-manual-mins" type="number" min="1" max="1440" value="60" class="light-input text-xs font-mono font-bold"/>
+            </div>
+            <div>
+                <label class="block text-[11px] font-bold uppercase text-muted mb-1">Date</label>
+                <input id="f-manual-date" type="date" value="${new Date().toISOString().split('T')[0]}" class="light-input text-xs font-mono font-bold"/>
+            </div>
+        </div>
+        <div class="flex gap-2 pt-2 flex-wrap">
+            <button type="button" onclick="document.getElementById('f-manual-mins').value = 480; document.getElementById('f-manual-task').value = 'Sleep Tracking';" class="cyber-pill px-2.5 py-1 rounded-lg text-[10px] font-bold text-indigo-400 hover:border-indigo-400">💤 8h Sleep</button>
+            <button type="button" onclick="document.getElementById('f-manual-mins').value = 420; document.getElementById('f-manual-task').value = 'Sleep Tracking';" class="cyber-pill px-2.5 py-1 rounded-lg text-[10px] font-bold text-indigo-400 hover:border-indigo-400">💤 7h Sleep</button>
+            <button type="button" onclick="document.getElementById('f-manual-mins').value = 120; document.getElementById('f-manual-task').value = 'Deep Study Sprint';" class="cyber-pill px-2.5 py-1 rounded-lg text-[10px] font-bold text-primary hover:border-primary">📚 2h Study</button>
+            <button type="button" onclick="document.getElementById('f-manual-mins').value = 60; document.getElementById('f-manual-task').value = 'Coding Practice';" class="cyber-pill px-2.5 py-1 rounded-lg text-[10px] font-bold text-emerald-400 hover:border-emerald-400">💻 1h Code</button>
+            <button type="button" onclick="document.getElementById('f-manual-mins').value = 15; document.getElementById('f-manual-task').value = 'Rest & Refresh';" class="cyber-pill px-2.5 py-1 rounded-lg text-[10px] font-bold text-amber-400 hover:border-amber-400">☕ 15m Break</button>
+        </div>
+    `;
+    document.getElementById('modal-overlay').classList.remove('hidden');
+}
+
+async function trimActiveOverrunTimer(hours) {
+    const mins = hours * 60;
+    const task = pomoTaskLabel || 'Sleep Tracking';
+    playHaptic('success');
+    pausePomodoroTimer();
+    stopSoftAlarm();
+    try {
+        await fetch('/api/focus/adjust_active', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken || '' },
+            body: JSON.stringify({ minutes: mins, task: task, update_latest: true })
+        });
+        toast(`✅ Trimmed & saved as ${hours} hours for "${task}"!`, 'success');
+        clearTimerPersistence();
+        const banner = document.getElementById('pomo-overrun-banner');
+        if (banner) banner.classList.add('hidden');
+        loadFocusStats();
+    } catch(e) {
+        toast('Failed to trim timer', 'error');
+    }
+}
+
+function openCustomTrimPrompt() {
+    const val = prompt('Enter exact hours you actually slept or worked (e.g. 7.5 or 8):', '7.5');
+    if (!val) return;
+    const hrs = parseFloat(val);
+    if (!hrs || isNaN(hrs) || hrs <= 0) return;
+    trimActiveOverrunTimer(hrs);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -4999,6 +5311,27 @@ async function modalSave() {
             due_time: document.getElementById('f-due-time') ? document.getElementById('f-due-time').value : '11:59 PM'
         });
         loadTasks();
+    } else if (action === 'edit_focus_session') {
+        const id = document.getElementById('f-edit-session-id').value;
+        const task = g('f-edit-task') || 'General Activity';
+        const mins = parseInt(document.getElementById('f-edit-mins').value, 10) || 25;
+        const d = document.getElementById('f-edit-date').value;
+        await fetch(`/api/focus/session/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken || '' },
+            body: JSON.stringify({ task_label: task, total_minutes: mins, date: d })
+        });
+        loadFocusStats();
+    } else if (action === 'manual_focus_session') {
+        const task = g('f-manual-task') || 'General Activity';
+        const mins = parseInt(document.getElementById('f-manual-mins').value, 10) || 30;
+        const d = document.getElementById('f-manual-date').value;
+        await fetch('/api/focus/manual_log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken || '' },
+            body: JSON.stringify({ task_label: task, total_minutes: mins, date: d })
+        });
+        loadFocusStats();
     }
 
     closeModal();

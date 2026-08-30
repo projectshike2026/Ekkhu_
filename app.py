@@ -3051,14 +3051,24 @@ def parse_timer_duration_minutes(text):
     for bd, ed in bengali_digits.items():
         t = t.replace(bd, ed)
 
-    m_num = re.search(r'(\d+)\s*(?:min|minute|মিনিট|minit|mnt|m\b|ঘণ্টা|ghonta|hour|hr)', t)
+    # 1. Direct Hour match: "7 ghonta", "8 ghonta", "4 hour", "৭ ঘণ্টা", "৮ ঘণ্টা", "4 ঘণ্টা"
+    m_hr = re.search(r'(\d+)\s*(?:ghonta|ঘণ্টা|hour|hr|h\b)', t)
+    if m_hr:
+        return int(m_hr.group(1)) * 60
+
+    # 2. Direct Minute match: "2 min", "5 minute", "25 mnt", "২ মিনিট"
+    m_num = re.search(r'(\d+)\s*(?:min|minute|মিনিট|minit|mnt|m\b)', t)
     if m_num:
-        val = int(m_num.group(1))
-        if re.search(r'(\d+)\s*(?:ঘণ্টা|ghonta|hour|hr)', t):
-            val = val * 60
-        return val
+        return int(m_num.group(1))
 
     word_map = [
+        (['sat ghonta', 'সাত ঘণ্টা', '7 hour', '7 hours', '7 hr', '7 ghonta'], 420),
+        (['at ghonta', 'আট ঘণ্টা', '8 hour', '8 hours', '8 hr', '8 ghonta'], 480),
+        (['choy ghonta', 'ছয় ঘণ্টা', 'ছয় ঘণ্টা', '6 hour', '6 hours', '6 hr'], 360),
+        (['pach ghonta', 'পাঁচ ঘণ্টা', '5 hour', '5 hours', '5 hr'], 300),
+        (['char ghonta', 'চার ঘণ্টা', '4 hour', '4 hours', '4 hr'], 240),
+        (['tin ghonta', 'তিন ঘণ্টা', '3 hour', '3 hours', '3 hr'], 180),
+        (['dui ghonta', 'দুই ঘণ্টা', '2 hour', '2 hours', '2 hr'], 120),
         (['ek ghonta', 'এক ঘণ্টা', '1 hour', '1 hr'], 60),
         (['adho ghonta', 'আধ ঘণ্টা', 'half hour'], 30),
         (['pochish', 'পঁচিশ'], 25),
@@ -3075,7 +3085,7 @@ def parse_timer_duration_minutes(text):
     for words, mins in word_map:
         for w in words:
             if re.search(r'\b' + re.escape(w) + r'\b', t):
-                if any(k in t for k in ['min', 'mnt', 'মিনিট', 'timer', 'টাইমার', 'ন্যাপ', 'nap', 'ঘণ্টা', 'hour']):
+                if any(k in t for k in ['min', 'mnt', 'মিনিট', 'timer', 'টাইমার', 'ন্যাপ', 'nap', 'ঘণ্টা', 'hour', 'ঘুম', 'ghum', 'sleep', 'ফলস', 'ভুলে']):
                     return mins
     return None
 
@@ -3337,6 +3347,16 @@ def chat():
                         set_academic_state(user_id, 'holiday', h_start, h_end, h_reason, '', conn=write_conn)
                     elif atype == "resume_regular_classes":
                         set_academic_state(user_id, 'regular', '', '', 'Regular classes resumed', '', conn=write_conn)
+                    elif atype == "adjust_focus_session":
+                        c_mins = int(action.get('minutes', 480))
+                        c_task = action.get('task', 'Sleep Tracking')
+                        c.execute('DELETE FROM active_timer_state WHERE id = 1')
+                        latest = c.execute('SELECT id, total_minutes FROM focus_sessions ORDER BY id DESC LIMIT 1').fetchone()
+                        if latest:
+                            c.execute('UPDATE focus_sessions SET total_minutes = ?, task_label = ? WHERE id = ?', (c_mins, c_task, latest['id']))
+                        else:
+                            c.execute('INSERT INTO focus_sessions (task_label, cycles_planned, cycles_done, total_minutes, date, started_at) VALUES (?,?,?,?,?,?)',
+                                      (c_task, max(1, round(c_mins/25)), max(1, round(c_mins/25)), c_mins, date.today().isoformat(), datetime.now().isoformat()))
                 except Exception as ae:
                     print(f"[ACTION] Execution skipped on error: {ae}")
 
@@ -4066,15 +4086,99 @@ def focus_log():
 
 @app.route('/api/focus/history', methods=['GET'])
 def focus_history():
-    """Return the last 30 focus sessions for the user."""
+    """Return the last 50 focus/activity sessions for the user."""
     user_id = get_current_user_id()
     conn = get_db(user_id)
     c = conn.cursor()
     rows = c.execute(
-        'SELECT * FROM focus_sessions ORDER BY id DESC LIMIT 30'
+        'SELECT * FROM focus_sessions ORDER BY id DESC LIMIT 50'
     ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/focus/session/<int:session_id>', methods=['PUT', 'POST'])
+def focus_update_session(session_id):
+    """Update task label, minutes, or date for a specific session."""
+    user_id = get_current_user_id()
+    data = request.get_json() or {}
+    task_label = data.get('task_label', '').strip() or 'General Activity'
+    total_minutes = int(data.get('total_minutes', 25))
+    date_str = data.get('date', date.today().isoformat())
+
+    conn = get_db(user_id)
+    c = conn.cursor()
+    c.execute('UPDATE focus_sessions SET task_label=?, total_minutes=?, date=? WHERE id=?', 
+              (task_label, total_minutes, date_str, session_id))
+    conn.commit()
+    conn.close()
+    TURSO_SYNC.trigger_async_push(user_id)
+    return jsonify({'ok': True, 'id': session_id, 'minutes': total_minutes})
+
+
+@app.route('/api/focus/session/<int:session_id>', methods=['DELETE'])
+def focus_delete_session(session_id):
+    """Delete a specific focus session (e.g. erroneous or forgotten over-run timer)."""
+    user_id = get_current_user_id()
+    conn = get_db(user_id)
+    c = conn.cursor()
+    c.execute('DELETE FROM focus_sessions WHERE id=?', (session_id,))
+    conn.commit()
+    conn.close()
+    TURSO_SYNC.trigger_async_push(user_id)
+    return jsonify({'ok': True, 'deleted_id': session_id})
+
+
+@app.route('/api/focus/manual_log', methods=['POST'])
+def focus_manual_log():
+    """Manually log past study, sleep, coding, or break session."""
+    user_id = get_current_user_id()
+    data = request.get_json() or {}
+    task_label = data.get('task_label', '').strip() or 'General Activity'
+    total_minutes = int(data.get('total_minutes', 30))
+    date_str = data.get('date', date.today().isoformat())
+    started_at = data.get('started_at', datetime.now().isoformat())
+    cycles_done = max(1, round(total_minutes / 25))
+
+    conn = get_db(user_id)
+    c = conn.cursor()
+    c.execute(
+        'INSERT INTO focus_sessions (task_label, cycles_planned, cycles_done, total_minutes, date, started_at) VALUES (?,?,?,?,?,?)',
+        (task_label, cycles_done, cycles_done, total_minutes, date_str, started_at)
+    )
+    conn.commit()
+    conn.close()
+    TURSO_SYNC.trigger_async_push(user_id)
+    return jsonify({'ok': True, 'minutes': total_minutes})
+
+
+@app.route('/api/focus/adjust_active', methods=['POST'])
+def focus_adjust_active():
+    """Trim or correct an overgrown/forgotten active stopwatch or recent session."""
+    user_id = get_current_user_id()
+    data = request.get_json() or {}
+    corrected_minutes = int(data.get('minutes', 480))
+    task_label = data.get('task', 'Sleep Tracking')
+
+    conn = get_db(user_id)
+    c = conn.cursor()
+
+    # 1. Clear active timer if running
+    c.execute('DELETE FROM active_timer_state WHERE id = 1')
+    
+    # 2. Check if a session was logged today with > 10 hours or if we should update latest
+    latest = c.execute('SELECT id, total_minutes FROM focus_sessions ORDER BY id DESC LIMIT 1').fetchone()
+    if latest and (latest['total_minutes'] > 600 or data.get('update_latest', False)):
+        c.execute('UPDATE focus_sessions SET total_minutes = ?, task_label = ? WHERE id = ?', 
+                  (corrected_minutes, task_label, latest['id']))
+    else:
+        c.execute('INSERT INTO focus_sessions (task_label, cycles_planned, cycles_done, total_minutes, date, started_at) VALUES (?,?,?,?,?,?)',
+                  (task_label, max(1, round(corrected_minutes/25)), max(1, round(corrected_minutes/25)), corrected_minutes, date.today().isoformat(), datetime.now().isoformat()))
+
+    conn.commit()
+    conn.close()
+    TURSO_SYNC.trigger_async_push(user_id)
+    return jsonify({'ok': True, 'corrected_minutes': corrected_minutes, 'task': task_label})
 
 
 @app.route('/api/focus/stats', methods=['GET'])
