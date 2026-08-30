@@ -111,18 +111,6 @@ def load_config(force_reload=False):
     if _CONFIG_CACHE is not None and not force_reload:
         return _CONFIG_CACHE
 
-    if os.path.exists(USERS_FILE):
-        try:
-            with open(USERS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            if 'invite_code' not in data: data['invite_code'] = 'EKKU2025'
-            if 'users' not in data: data['users'] = []
-            _CONFIG_CACHE = data
-            return _CONFIG_CACHE
-        except Exception as e:
-            print("[CONFIG] Failed to read local users file:", e)
-
-    # Fallback to Turso if local file missing on fresh container
     if os.getenv("TURSO_DATABASE_URL"):
         try:
             conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
@@ -132,15 +120,25 @@ def load_config(force_reload=False):
             row = c.fetchone()
             if row:
                 _CONFIG_CACHE = json.loads(row[0] if isinstance(row, (tuple, list)) else row['value'])
-                with open(USERS_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(_CONFIG_CACHE, f, indent=2)
                 return _CONFIG_CACHE
         except Exception as e:
-            print("[TURSO] Failed to load config from cloud:", e)
+            print("[TURSO] Failed to load config:", e)
+        _CONFIG_CACHE = DEFAULT_CONFIG.copy()
+        return _CONFIG_CACHE
 
-    with open(USERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(DEFAULT_CONFIG, f, indent=2)
-    _CONFIG_CACHE = DEFAULT_CONFIG.copy()
+    if not os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'w') as f:
+            json.dump(DEFAULT_CONFIG, f, indent=2)
+        _CONFIG_CACHE = DEFAULT_CONFIG.copy()
+        return _CONFIG_CACHE
+    with open(USERS_FILE) as f:
+        data = json.load(f)
+    # Handle old 5-user format gracefully
+    if 'invite_code' not in data:
+        data['invite_code'] = 'EKKU2025'
+    if 'users' not in data:
+        data['users'] = []
+    _CONFIG_CACHE = data
     return _CONFIG_CACHE
 
 def load_users(force_reload=False):
@@ -149,10 +147,19 @@ def load_users(force_reload=False):
 def save_config(cfg):
     global _CONFIG_CACHE
     _CONFIG_CACHE = cfg
-    with open(USERS_FILE, 'w', encoding='utf-8') as f:
+    if os.getenv("TURSO_DATABASE_URL"):
+        try:
+            conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
+            c = conn.cursor()
+            c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
+            c.execute("INSERT INTO global_store (key, value) VALUES ('users_config', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(cfg),))
+            conn.commit()
+            return
+        except Exception as e:
+            print("[TURSO] Failed to save config:", e)
+            
+    with open(USERS_FILE, 'w') as f:
         json.dump(cfg, f, indent=2)
-    if 'TURSO_SYNC' in globals():
-        TURSO_SYNC.trigger_async_push('global')
 
 def save_users_data(users):
     cfg = load_config()
@@ -193,15 +200,6 @@ def load_sessions(force_reload=False):
     if _SESSIONS_CACHE is not None and not force_reload:
         return _SESSIONS_CACHE
     
-    if os.path.exists(SESSIONS_FILE):
-        try:
-            with open(SESSIONS_FILE, 'r', encoding='utf-8') as f:
-                _SESSIONS_CACHE = json.load(f)
-            return _SESSIONS_CACHE
-        except Exception:
-            pass
-
-    # Fallback to Turso if local file missing on fresh container
     if os.getenv("TURSO_DATABASE_URL"):
         try:
             conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
@@ -211,25 +209,40 @@ def load_sessions(force_reload=False):
             row = c.fetchone()
             if row:
                 _SESSIONS_CACHE = json.loads(row[0] if isinstance(row, (tuple, list)) else row['value'])
-                with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(_SESSIONS_CACHE, f, indent=2)
                 return _SESSIONS_CACHE
         except Exception as e:
-            print("[TURSO] Failed to load sessions from cloud:", e)
+            print("[TURSO] Failed to load sessions:", e)
+        _SESSIONS_CACHE = {}
+        return _SESSIONS_CACHE
 
-    _SESSIONS_CACHE = {}
+    if not os.path.exists(SESSIONS_FILE):
+        _SESSIONS_CACHE = {}
+        return _SESSIONS_CACHE
+    try:
+        with open(SESSIONS_FILE) as f:
+            _SESSIONS_CACHE = json.load(f)
+    except Exception:
+        _SESSIONS_CACHE = {}
     return _SESSIONS_CACHE
 
 def save_sessions(sessions):
     global _SESSIONS_CACHE
     _SESSIONS_CACHE = sessions
+    if os.getenv("TURSO_DATABASE_URL"):
+        try:
+            conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
+            c = conn.cursor()
+            c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
+            c.execute("INSERT INTO global_store (key, value) VALUES ('active_sessions', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(sessions),))
+            conn.commit()
+            return
+        except Exception as e:
+            print("[TURSO] Failed to save sessions:", e)
     try:
-        with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
+        with open(SESSIONS_FILE, 'w') as f:
             json.dump(sessions, f, indent=2)
     except Exception as e:
         print("[SESSIONS] Failed to write sessions file:", e)
-    if 'TURSO_SYNC' in globals():
-        TURSO_SYNC.trigger_async_push('global')
 
 def create_session(user_id, name, color):
     token = secrets.token_urlsafe(32)
@@ -415,10 +428,9 @@ class TursoCursor:
         ]
 
     def _rewrite(self, sql):
-        # Prevent double prefixing if it's already prefixed with {user_id}_
+        # Prevent double prefixing if it's already prefixed
         for t in self.tables:
-            pattern = rf'(?<!{re.escape(self.user_id)}_)\b{t}\b'
-            sql = re.sub(pattern, f'{self.user_id}_{t}', sql, flags=re.IGNORECASE)
+            sql = re.sub(rf'\b{t}\b', f'{self.user_id}_{t}', sql, flags=re.IGNORECASE)
         # Restore if it accidentally replaced global_store
         sql = sql.replace(f'{self.user_id}_global_store', 'global_store')
         return sql
@@ -508,15 +520,16 @@ class TursoSyncManager:
         return TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), user_id)
 
     def pull_all_from_turso(self):
-        """Pull all global configs and user databases from Turso into local SQLite files."""
+        """Pull all global configs and user databases from Turso into local SQLite files with multi-table recovery."""
         if not self.is_configured():
             return {"ok": False, "error": "TURSO_DATABASE_URL not configured"}
             
         with self._sync_lock:
             try:
-                # 1. Pull global store (users_config, ekku_key, active_sessions)
                 g_conn = self._get_turso_conn("global")
                 gc = g_conn.cursor()
+
+                # 1. Pull global store (users_config, ekku_key, active_sessions)
                 try:
                     gc.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
                     gc.execute("SELECT key, value FROM global_store")
@@ -551,38 +564,55 @@ class TursoSyncManager:
                 except Exception as ge:
                     print("[TURSO_SYNC] Global store pull error:", ge)
 
-                # 2. Restore user databases
+                # 2. Restore user databases with fallback scanning (u1_tbl, u1_u1_tbl, A_tbl)
                 users = load_users()
                 total_records = 0
                 synced_users = []
 
                 for u in users:
                     uid = u['id']
-                    u_conn = self._get_turso_conn(uid)
-                    uc = u_conn.cursor()
-                    
                     local_conn = sqlite3.connect(f'user_{uid}.db')
                     local_conn.row_factory = sqlite3.Row
                     init_db_schema(local_conn)
                     lc = local_conn.cursor()
 
                     for tbl in SYNCED_TABLES:
+                        rows = None
+                        
+                        # Priority 1: Standard table name (e.g. u1_chat_history)
                         try:
-                            uc.execute(f"SELECT * FROM {tbl}")
-                            rows = uc.fetchall()
-                            if rows:
-                                cols = list(rows[0].keys())
-                                placeholders = ",".join(["?"] * len(cols))
-                                col_str = ",".join(cols)
-                                
-                                lc.execute(f"DELETE FROM {tbl}")
-                                for r in rows:
-                                    vals = [r[c] for c in cols]
-                                    lc.execute(f"INSERT OR REPLACE INTO {tbl} ({col_str}) VALUES ({placeholders})", vals)
-                                    total_records += 1
+                            gc.execute(f"SELECT * FROM {uid}_{tbl}")
+                            rows = gc.fetchall()
                         except Exception:
                             pass
-                    
+
+                        # Priority 2: Double-prefixed table name from earlier glitch (e.g. u1_u1_chat_history)
+                        if not rows:
+                            try:
+                                gc.execute(f"SELECT * FROM {uid}_{uid}_{tbl}")
+                                rows = gc.fetchall()
+                            except Exception:
+                                pass
+
+                        # Priority 3: Legacy user 'A' table (e.g. A_chat_history)
+                        if not rows and uid == 'u1':
+                            try:
+                                gc.execute(f"SELECT * FROM A_{tbl}")
+                                rows = gc.fetchall()
+                            except Exception:
+                                pass
+
+                        if rows:
+                            cols = list(rows[0].keys())
+                            placeholders = ",".join(["?"] * len(cols))
+                            col_str = ",".join(cols)
+                            
+                            lc.execute(f"DELETE FROM {tbl}")
+                            for r in rows:
+                                vals = [r[c] for c in cols]
+                                lc.execute(f"INSERT OR REPLACE INTO {tbl} ({col_str}) VALUES ({placeholders})", vals)
+                                total_records += 1
+
                     local_conn.commit()
                     local_conn.close()
                     synced_users.append(uid)
@@ -603,11 +633,12 @@ class TursoSyncManager:
 
         with self._sync_lock:
             try:
+                g_conn = self._get_turso_conn("global")
+                gc = g_conn.cursor()
+
                 # 1. Push global store
                 cfg = load_config()
                 sess = load_sessions()
-                g_conn = self._get_turso_conn("global")
-                gc = g_conn.cursor()
                 gc.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
                 gc.execute("INSERT OR REPLACE INTO global_store (key, value) VALUES ('users_config', ?)", (json.dumps(cfg),))
                 gc.execute("INSERT OR REPLACE INTO global_store (key, value) VALUES ('active_sessions', ?)", (json.dumps(sess),))
@@ -617,7 +648,7 @@ class TursoSyncManager:
                         kbytes = f.read().decode('utf-8', errors='ignore')
                     gc.execute("INSERT OR REPLACE INTO global_store (key, value) VALUES ('ekku_key', ?)", (kbytes,))
 
-                # 2. Push user databases
+                # 2. Push user databases directly
                 users = load_users()
                 total_records = 0
                 synced_users = []
@@ -631,34 +662,33 @@ class TursoSyncManager:
                     local_conn = sqlite3.connect(db_path)
                     local_conn.row_factory = sqlite3.Row
                     lc = local_conn.cursor()
-                    
-                    u_conn = self._get_turso_conn(uid)
-                    uc = u_conn.cursor()
 
                     for tbl in SYNCED_TABLES:
+                        target_tbl = f"{uid}_{tbl}"
+                        
                         lc.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{tbl}'")
                         schema_row = lc.fetchone()
                         if schema_row and schema_row['sql']:
-                            create_sql = schema_row['sql'].replace(f"CREATE TABLE {tbl}", f"CREATE TABLE IF NOT EXISTS {tbl}").replace(f"CREATE TABLE IF NOT EXISTS {tbl}", f"CREATE TABLE IF NOT EXISTS {tbl}")
+                            create_sql = schema_row['sql'].replace(f"CREATE TABLE {tbl}", f"CREATE TABLE IF NOT EXISTS {target_tbl}").replace(f"CREATE TABLE IF NOT EXISTS {tbl}", f"CREATE TABLE IF NOT EXISTS {target_tbl}")
                             try:
-                                uc.execute(create_sql)
+                                gc.execute(create_sql)
                             except Exception:
                                 pass
 
                         lc.execute(f"SELECT * FROM {tbl}")
                         rows = lc.fetchall()
                         try:
-                            uc.execute(f"DELETE FROM {tbl}")
+                            gc.execute(f"DELETE FROM {target_tbl}")
                             if rows:
                                 cols = [k for k in rows[0].keys()]
                                 col_str = ",".join(cols)
                                 placeholders = ",".join(["?"] * len(cols))
                                 for r in rows:
                                     vals = [r[k] for k in cols]
-                                    uc.execute(f"INSERT INTO {tbl} ({col_str}) VALUES ({placeholders})", vals)
+                                    gc.execute(f"INSERT INTO {target_tbl} ({col_str}) VALUES ({placeholders})", vals)
                                     total_records += 1
                         except Exception as pe:
-                            print(f"[TURSO_SYNC] Error pushing {tbl} for {uid}:", pe)
+                            print(f"[TURSO_SYNC] Error pushing {target_tbl}:", pe)
 
                     local_conn.close()
                     synced_users.append(uid)
@@ -671,8 +701,6 @@ class TursoSyncManager:
                 import traceback; traceback.print_exc()
                 self.last_sync_status = f"Push failed: {e}"
                 return {"ok": False, "error": str(e)}
-
-
 
     def trigger_async_push(self, user_id='A'):
         """Schedule a non-blocking background backup to Turso."""
@@ -2329,121 +2357,6 @@ def api_admin_sync_pull():
     """Pull and restore latest snapshot from Turso cloud into local SQLite."""
     res = TURSO_SYNC.pull_all_from_turso()
     return jsonify(res)
-
-@app.route('/api/admin/export_backup', methods=['GET'])
-def api_admin_export_backup():
-    """Export complete snapshot of all users, configs, sessions, keys, and SQLite data as downloadable JSON."""
-    try:
-        backup = {
-            "version": "2.5",
-            "exported_at": now_bd_iso(),
-            "users_config": load_config(),
-            "active_sessions": load_sessions(),
-            "ekku_key": None,
-            "databases": {}
-        }
-        if os.path.exists('ekku.key'):
-            with open('ekku.key', 'rb') as f:
-                backup["ekku_key"] = f.read().decode('utf-8', errors='ignore')
-                
-        users = load_users()
-        for u in users:
-            uid = u['id']
-            db_path = f'user_{uid}.db'
-            if not os.path.exists(db_path):
-                continue
-            
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            user_data = {}
-            for tbl in SYNCED_TABLES:
-                try:
-                    c.execute(f"SELECT * FROM {tbl}")
-                    rows = c.fetchall()
-                    user_data[tbl] = [dict(r) for r in rows]
-                except Exception:
-                    user_data[tbl] = []
-            conn.close()
-            backup["databases"][uid] = user_data
-
-        resp = jsonify(backup)
-        resp.headers["Content-Disposition"] = f"attachment; filename=ekkhu_full_backup_{date.today().isoformat()}.json"
-        return resp
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-@app.route('/api/admin/import_backup', methods=['POST'])
-def api_admin_import_backup():
-    """Import and restore full backup JSON into local SQLite and push to Turso."""
-    try:
-        data = None
-        if 'file' in request.files:
-            f = request.files['file']
-            data = json.load(f)
-        elif request.is_json:
-            data = request.get_json()
-            
-        if not data or not isinstance(data, dict):
-            return jsonify({"ok": False, "error": "Invalid backup file format"}), 400
-
-        # 1. Restore users_config
-        if 'users_config' in data and data['users_config']:
-            save_config(data['users_config'])
-            load_config(force_reload=True)
-
-        # 2. Restore active_sessions
-        if 'active_sessions' in data and data['active_sessions']:
-            save_sessions(data['active_sessions'])
-            load_sessions(force_reload=True)
-
-        # 3. Restore ekku.key
-        if data.get('ekku_key'):
-            with open('ekku.key', 'wb') as f:
-                f.write(data['ekku_key'].encode('utf-8') if isinstance(data['ekku_key'], str) else data['ekku_key'])
-
-        # 4. Restore user databases
-        databases = data.get('databases', {})
-        total_records = 0
-        restored_users = []
-
-        for uid, user_tables in databases.items():
-            conn = sqlite3.connect(f'user_{uid}.db')
-            conn.row_factory = sqlite3.Row
-            init_db_schema(conn)
-            c = conn.cursor()
-
-            for tbl, rows in user_tables.items():
-                if not rows: continue
-                c.execute(f"DELETE FROM {tbl}")
-                cols = list(rows[0].keys())
-                placeholders = ",".join(["?"] * len(cols))
-                col_str = ",".join(cols)
-                for r in rows:
-                    vals = [r.get(col) for col in cols]
-                    c.execute(f"INSERT OR REPLACE INTO {tbl} ({col_str}) VALUES ({placeholders})", vals)
-                    total_records += 1
-
-            conn.commit()
-            conn.close()
-            restored_users.append(uid)
-
-        # Push restored data to Turso if configured
-        if TURSO_SYNC.is_configured():
-            try:
-                TURSO_SYNC.push_all_to_turso()
-            except Exception as pe:
-                print("[TURSO] Error syncing imported backup to Turso:", pe)
-
-        return jsonify({
-            "ok": True,
-            "message": f"Successfully restored {total_records} records across {len(restored_users)} user(s)!",
-            "records_restored": total_records,
-            "users_restored": restored_users
-        })
-    except Exception as e:
-        import traceback; traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route('/api/admin/reset_metrics', methods=['POST'])
 def api_admin_reset_metrics():
@@ -4190,3 +4103,4 @@ if __name__ == '__main__':
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
     port = int(os.getenv('PORT', os.getenv('EKKU_PORT', 5000)))
     app.run(debug=False, host='0.0.0.0', port=port)
+
