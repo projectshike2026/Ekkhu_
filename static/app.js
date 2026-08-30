@@ -558,6 +558,12 @@ function updateUserUI() {
     const sn = document.getElementById('desk-profile-name');
     if (sn) sn.textContent = name;
 
+    const ma = document.getElementById('mob-drawer-avatar');
+    if (ma) { ma.textContent = initial; ma.style.background = color || 'var(--primary)'; }
+
+    const mn = document.getElementById('mob-drawer-name');
+    if (mn) mn.textContent = name;
+
     const fl = document.getElementById('footer-user-label');
     if (fl) fl.innerHTML = `<span class="material-symbols-outlined text-[13px]">person</span> ${escapeHtml(name)}`;
 
@@ -643,6 +649,39 @@ function showView(name) {
     }
     if (name === 'dashboard') {
         loadSummary();
+    }
+}
+
+function openMobileMenu() {
+    playHaptic('tap');
+    const drawer = document.getElementById('mobile-menu-drawer');
+    if (drawer) {
+        drawer.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function closeMobileMenu() {
+    playHaptic('tap');
+    const drawer = document.getElementById('mobile-menu-drawer');
+    if (drawer) {
+        drawer.classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+}
+
+function toggleMobileMenu() {
+    const drawer = document.getElementById('mobile-menu-drawer');
+    if (drawer && !drawer.classList.contains('hidden')) {
+        closeMobileMenu();
+    } else {
+        openMobileMenu();
+    }
+}
+
+function handleMobileMenuBackdrop(event) {
+    if (event.target && event.target.id === 'mobile-menu-drawer') {
+        closeMobileMenu();
     }
 }
 

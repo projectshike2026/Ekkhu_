@@ -1104,18 +1104,26 @@
   <!-- Mobile Top Header -->
   <header class="md:hidden w-full top-0 sticky z-40 border-b glass-card" style="border-radius:0">
     <div class="flex justify-between items-center px-4 h-14">
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white font-black text-base shadow-md" style="background:var(--gradient-btn)">E</div>
-        <span class="font-extrabold text-base tracking-tight gradient-text">EKKHU</span>
+      <div class="flex items-center gap-2.5">
+        <button onclick="toggleMobileMenu()" class="w-9 h-9 rounded-xl flex items-center justify-center cyber-pill text-main hover:text-primary transition-all active:scale-95" title="Open All Features & Academic Suite">
+          <span class="material-symbols-outlined text-[22px]">menu</span>
+        </button>
+        <div class="flex items-center gap-2 cursor-pointer" onclick="showView('dashboard')">
+          <div class="w-7 h-7 rounded-lg flex items-center justify-center text-white font-black text-xs shadow-md" style="background:var(--gradient-btn)">E</div>
+          <span class="font-extrabold text-sm tracking-tight gradient-text">EKKHU</span>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5">
+        <button onclick="openPomodoroModal()" class="w-8 h-8 rounded-full flex items-center justify-center cyber-pill text-primary transition-colors" title="Focus Timer">
+          <span class="material-symbols-outlined text-[17px]">timer</span>
+        </button>
         <button onclick="cycleSweetPalette()" class="w-8 h-8 rounded-full flex items-center justify-center cyber-pill text-muted hover:text-primary transition-colors" title="Change Theme Palette">
           <span class="material-symbols-outlined text-[17px]">palette</span>
         </button>
         <button onclick="toggleTheme()" class="w-8 h-8 rounded-full flex items-center justify-center cyber-pill text-muted hover:text-primary transition-colors">
           <span class="material-symbols-outlined text-[17px]" id="mob-theme-icon">dark_mode</span>
         </button>
-        <button id="mobile-user-btn" onclick="logOut()" class="w-8 h-8 rounded-full text-white font-bold text-xs shadow flex items-center justify-center border border-white/40" style="background:var(--primary)">A</button>
+        <button id="mobile-user-btn" onclick="toggleMobileMenu()" class="w-8 h-8 rounded-full text-white font-bold text-xs shadow flex items-center justify-center border border-white/40" style="background:var(--primary)">A</button>
       </div>
     </div>
   </header>
@@ -1360,8 +1368,8 @@
           <p class="text-[10px] text-muted leading-tight font-medium group-hover:text-primary transition-colors" id="health-index-desc">Click for 5-Factor Audit Breakdown</p>
         </div>
 
-        <!-- Attendance Card -->
-        <div class="glass-card rounded-2xl p-4 min-w-[170px] md:min-w-0 flex-1 animate-fade-up flex flex-col justify-between snap-center">
+        <!-- Attendance Card (Clickable) -->
+        <div onclick="showView('attendance')" class="glass-card rounded-2xl p-4 min-w-[170px] md:min-w-0 flex-1 animate-fade-up flex flex-col justify-between snap-center cursor-pointer hover:border-primary transition-all" title="View full Attendance Tracker">
           <div class="flex items-center justify-between mb-2">
             <span class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20"><span class="material-symbols-outlined text-[18px]">how_to_reg</span></span>
             <span id="d-att-status-chip" class="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold">GOOD</span>
@@ -1376,8 +1384,8 @@
           <p id="d-att-safe-pill" class="text-[10px] text-muted font-semibold mt-2 pt-1.5 border-t" style="border-color:var(--border-subtle)">Calculating...</p>
         </div>
 
-        <!-- CGPA Card -->
-        <div class="glass-card rounded-2xl p-4 min-w-[170px] md:min-w-0 flex-1 animate-fade-up flex flex-col justify-between snap-center">
+        <!-- CGPA Card (Clickable) -->
+        <div onclick="showView('cgpa')" class="glass-card rounded-2xl p-4 min-w-[170px] md:min-w-0 flex-1 animate-fade-up flex flex-col justify-between snap-center cursor-pointer hover:border-primary transition-all" title="View CGPA Predictor & Baseline Profile">
           <div class="flex items-center justify-between mb-2">
             <span class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/20"><span class="material-symbols-outlined text-[18px]">school</span></span>
             <span class="text-[9px] px-2 py-0.5 rounded-full cyber-pill text-muted font-bold">/ 4.00</span>
@@ -1392,8 +1400,8 @@
           <p id="d-cgpa-credit-pill" class="text-[10px] text-muted font-semibold mt-2 pt-1.5 border-t" style="border-color:var(--border-subtle)">0 credits</p>
         </div>
 
-        <!-- Budget Card -->
-        <div class="glass-card rounded-2xl p-4 min-w-[170px] md:min-w-0 flex-1 animate-fade-up flex flex-col justify-between snap-center">
+        <!-- Budget Card (Clickable) -->
+        <div onclick="showView('budget')" class="glass-card rounded-2xl p-4 min-w-[170px] md:min-w-0 flex-1 animate-fade-up flex flex-col justify-between snap-center cursor-pointer hover:border-primary transition-all" title="View Budget Tracker">
           <div class="flex items-center justify-between mb-2">
             <span class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20"><span class="material-symbols-outlined text-[18px]">account_balance_wallet</span></span>
             <span class="text-[9px] px-2 py-0.5 rounded-full cyber-pill text-emerald-600 dark:text-emerald-400 font-bold">BALANCE</span>
@@ -1407,8 +1415,8 @@
           <p id="d-daily-allowance" class="text-[10px] text-muted font-semibold mt-2 pt-1.5 border-t" style="border-color:var(--border-subtle)">৳0 / day</p>
         </div>
 
-        <!-- Tasks Card -->
-        <div class="glass-card rounded-2xl p-4 min-w-[170px] md:min-w-0 flex-1 animate-fade-up flex flex-col justify-between snap-center">
+        <!-- Tasks Card (Clickable) -->
+        <div onclick="showView('tasks')" class="glass-card rounded-2xl p-4 min-w-[170px] md:min-w-0 flex-1 animate-fade-up flex flex-col justify-between snap-center cursor-pointer hover:border-primary transition-all" title="View Daily Priorities">
           <div class="flex items-center justify-between mb-2">
             <span class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20"><span class="material-symbols-outlined text-[18px]">task_alt</span></span>
             <span class="text-[9px] px-2 py-0.5 rounded-full bg-primary/15 text-primary font-bold">TO-DO</span>
@@ -1422,7 +1430,7 @@
           </div>
           <p class="text-[10px] text-muted font-semibold mt-2 pt-1.5 border-t flex justify-between items-center" style="border-color:var(--border-subtle)">
             <span>Stay focused</span>
-            <button onclick="openTaskModal()" class="text-primary hover:underline font-bold">+ Add</button>
+            <button onclick="event.stopPropagation(); openTaskModal()" class="text-primary hover:underline font-bold">+ Add</button>
           </p>
         </div>
       </div>
@@ -2104,14 +2112,14 @@
       <span class="text-[9px] font-bold mt-0.5">Routine</span>
       <span class="dock-dot"></span>
     </button>
-    <button onclick="showView('plans')" data-view="plans" class="dock-tab">
-      <span class="material-symbols-outlined text-[21px] dock-icon">calendar_view_week</span>
-      <span class="text-[9px] font-bold mt-0.5">Plans</span>
+    <button onclick="showView('cgpa')" data-view="cgpa" class="dock-tab">
+      <span class="material-symbols-outlined text-[21px] dock-icon">school</span>
+      <span class="text-[9px] font-bold mt-0.5">CGPA</span>
       <span class="dock-dot"></span>
     </button>
-    <button onclick="showView('tasks')" data-view="tasks" class="dock-tab">
-      <span class="material-symbols-outlined text-[21px] dock-icon">task_alt</span>
-      <span class="text-[9px] font-bold mt-0.5">Tasks</span>
+    <button onclick="toggleMobileMenu()" class="dock-tab" id="dock-tab-menu">
+      <span class="material-symbols-outlined text-[21px] dock-icon">widgets</span>
+      <span class="text-[9px] font-bold mt-0.5">Menu</span>
       <span class="dock-dot"></span>
     </button>
   </nav>
@@ -2867,6 +2875,153 @@
       <button onclick="closeCancelSlotModal()" class="cyber-pill px-4 py-2 rounded-xl text-muted text-xs font-bold">Back</button>
       <button onclick="confirmCancelSlot()" class="bg-rose-600 hover:bg-rose-700 px-5 py-2 rounded-xl text-white text-xs font-bold shadow-md flex items-center gap-1.5 transition-all">
         <span class="material-symbols-outlined text-[16px]">cancel</span> Confirm Cancel
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+  📱 COMPREHENSIVE MOBILE NAVIGATION & APP HUB DRAWER
+══════════════════════════════════════════════════════ -->
+<div id="mobile-menu-drawer" class="hidden fixed inset-0 bg-black/60 backdrop-blur-md z-[115] flex flex-col justify-end md:hidden animate-fade-in" onclick="handleMobileMenuBackdrop(event)">
+  <div class="glass-card rounded-t-3xl p-5 pt-3 max-h-[85vh] overflow-y-auto space-y-4 border-t border-primary/30 shadow-2xl animate-slide-up" style="background:var(--bg-surface)" onclick="event.stopPropagation()">
+    <!-- Pull Bar Indicator -->
+    <div class="w-12 h-1.5 rounded-full bg-slate-400/40 mx-auto cursor-pointer" onclick="closeMobileMenu()"></div>
+
+    <!-- User Profile Header Card -->
+    <div class="flex items-center justify-between p-3.5 rounded-2xl cyber-pill border border-primary/20 bg-primary/5">
+      <div class="flex items-center gap-3">
+        <div id="mob-drawer-avatar" class="w-11 h-11 rounded-2xl text-white font-black text-base shadow-md flex items-center justify-center border border-white/30" style="background:var(--primary)">A</div>
+        <div>
+          <h3 id="mob-drawer-name" class="font-extrabold text-sm text-main leading-tight">User</h3>
+          <p class="text-[10px] text-muted font-mono mt-0.5" id="mob-drawer-sem">Active Profile</p>
+        </div>
+      </div>
+      <button onclick="logOut(); closeMobileMenu();" class="cyber-pill px-3 py-1.5 rounded-xl text-xs font-bold text-rose-500 hover:bg-rose-500/10 flex items-center gap-1">
+        <span class="material-symbols-outlined text-[15px]">logout</span> Switch
+      </button>
+    </div>
+
+    <!-- Quick Academic Actions Hub (Prominent Touch Buttons) -->
+    <div class="space-y-2">
+      <p class="text-[10px] font-bold uppercase tracking-wider text-muted font-mono px-1">Academic Suite</p>
+      <div class="grid grid-cols-2 gap-2.5">
+        <button onclick="showView('routine'); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">calendar_month</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Class Routine</p><p class="text-[9px] text-muted">Weekly schedule</p></div>
+        </button>
+
+        <button onclick="openRoutineParserModal(); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border border-indigo-500/30 hover:border-indigo-500 transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">photo_camera</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">1-Snap AI Routine</p><p class="text-[9px] text-muted">Scan image/PDF</p></div>
+        </button>
+
+        <button onclick="showView('cgpa'); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">school</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">CGPA Predictor</p><p class="text-[9px] text-muted">Target simulator</p></div>
+        </button>
+
+        <button onclick="openBaselineModal(); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">history_edu</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Set Baseline CG</p><p class="text-[9px] text-muted">Prior credits & GPA</p></div>
+        </button>
+
+        <button onclick="showView('attendance'); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">how_to_reg</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Attendance</p><p class="text-[9px] text-muted">Safe bunk shield</p></div>
+        </button>
+
+        <button onclick="openAcademicModeModal(); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">tune</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Academic Mode</p><p class="text-[9px] text-muted">PL / Exam / Break</p></div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Productivity & Life Management -->
+    <div class="space-y-2">
+      <p class="text-[10px] font-bold uppercase tracking-wider text-muted font-mono px-1">Productivity & Life</p>
+      <div class="grid grid-cols-2 gap-2.5">
+        <button onclick="showView('tasks'); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">task_alt</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Daily Priorities</p><p class="text-[9px] text-muted">Action items & to-dos</p></div>
+        </button>
+
+        <button onclick="showView('plans'); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">calendar_view_week</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Weekly Strategy</p><p class="text-[9px] text-muted">Master study plans</p></div>
+        </button>
+
+        <button onclick="showView('budget'); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">payments</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Budget Tracker</p><p class="text-[9px] text-muted">Daily spending limits</p></div>
+        </button>
+
+        <button onclick="openPomodoroModal(); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">timer</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Focus Pomodoro</p><p class="text-[9px] text-muted">Ekkhu PA sprints</p></div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Intelligence, System & Diagnostics -->
+    <div class="space-y-2">
+      <p class="text-[10px] font-bold uppercase tracking-wider text-muted font-mono px-1">Intelligence & Tools</p>
+      <div class="grid grid-cols-2 gap-2.5">
+        <button onclick="showView('chat'); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border border-primary/40 bg-primary/5 hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-primary text-white flex items-center justify-center shrink-0 shadow-sm">
+            <span class="material-symbols-outlined text-[18px]">smart_toy</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Ekkhu AI Chat</p><p class="text-[9px] text-emerald-500 font-bold">🟢 Online</p></div>
+        </button>
+
+        <button onclick="openHealthAuditModal(); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">monitor_heart</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Health Audit</p><p class="text-[9px] text-muted">5-Factor telemetry</p></div>
+        </button>
+
+        <a href="/admin" class="cyber-pill p-3 rounded-2xl text-left border border-rose-500/30 hover:border-rose-500 transition-all flex items-center gap-2.5 text-rose-500">
+          <div class="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">monitoring</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-rose-400 truncate">AI Quota & Health</p><p class="text-[9px] text-muted">Multi-key monitor</p></div>
+        </a>
+
+        <button onclick="showView('settings'); closeMobileMenu();" class="cyber-pill p-3 rounded-2xl text-left border hover:border-primary transition-all flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-slate-500/10 text-muted flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[18px]">settings</span>
+          </div>
+          <div class="min-w-0"><p class="text-xs font-bold text-main truncate">Settings</p><p class="text-[9px] text-muted">PIN & preferences</p></div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Close Drawer Button -->
+    <div class="pt-2">
+      <button onclick="closeMobileMenu()" class="w-full py-3 rounded-xl cyber-pill text-xs font-bold text-muted hover:text-main flex items-center justify-center gap-1.5">
+        <span class="material-symbols-outlined text-[17px]">expand_more</span> Close Menu
       </button>
     </div>
   </div>
