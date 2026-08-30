@@ -3358,8 +3358,46 @@ function speakPABriefing() {
 // ════════════════════════════════════════════════════════════════
 //  EKKHU ACTIVITY & FOCUS ANALYTICS + HISTORY MANAGEMENT ENGINE
 // ════════════════════════════════════════════════════════════════
+//  EKKHU ACTIVITY & FOCUS ANALYTICS + HISTORY MANAGEMENT ENGINE
+// ════════════════════════════════════════════════════════════════
 let focusWeeklyChartInstance = null;
 let focusTaskChartInstance = null;
+
+function formatDuration(mins) {
+    if (!mins || mins <= 0) return '0m';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
+}
+
+async function finishAndSaveSession() {
+    playHaptic('success');
+    let loggedMins = 0;
+    const task = pomoTaskLabel || (pomoMode === 'stopwatch' ? 'Activity Sprint' : 'Academic Focus');
+
+    if (pomoMode === 'stopwatch') {
+        if (pomoStopwatchSeconds < 5 && !confirm('Stopwatch has only run for a few seconds. Save anyway?')) {
+            return;
+        }
+        loggedMins = Math.max(1, Math.round(pomoStopwatchSeconds / 60));
+    } else if (pomoMode === 'custom') {
+        loggedMins = pomoCustomMinutes;
+    } else {
+        loggedMins = (pomoCyclesDone + 1) * 25;
+    }
+
+    pausePomodoroTimer();
+    stopSoftAlarm();
+    await logFocusSession(loggedMins);
+    clearTimerPersistence();
+    playCompletionChime();
+    
+    const formatted = formatDuration(loggedMins);
+    toast(`🏁 Session Done! ${formatted} recorded for "${task}" ✓`, 'success');
+    loadFocusStats();
+}
 
 async function loadFocusStats() {
     try {
@@ -3370,17 +3408,24 @@ async function loadFocusStats() {
         const stats = await statsRes.json();
         const history = await historyRes.json();
 
-        // 1. Update Totals
+        // 1. Update 4-Card Clear Categorized Breakdown
         const totalMins = (stats && stats.totals && stats.totals.total_minutes) || 0;
+        const studyMins = (stats && stats.totals && stats.totals.study_minutes) || 0;
+        const sleepMins = (stats && stats.totals && stats.totals.sleep_minutes) || 0;
         const totalSessions = (stats && stats.totals && stats.totals.total_sessions) || 0;
         const totalCycles = (stats && stats.totals && stats.totals.total_cycles) || 0;
 
         const mEl = document.getElementById('focus-total-minutes');
+        const stEl = document.getElementById('focus-study-minutes');
+        const slEl = document.getElementById('focus-sleep-minutes');
         const sEl = document.getElementById('focus-total-sessions');
-        const cEl = document.getElementById('focus-total-cycles');
-        if (mEl) mEl.textContent = totalMins >= 60 ? `${(totalMins/60).toFixed(1)}h` : `${totalMins}m`;
+        const slbEl = document.getElementById('focus-total-sessions-label');
+
+        if (mEl) mEl.textContent = formatDuration(totalMins);
+        if (stEl) stEl.textContent = formatDuration(studyMins);
+        if (slEl) slEl.textContent = formatDuration(sleepMins);
         if (sEl) sEl.textContent = totalSessions;
-        if (cEl) cEl.textContent = totalCycles;
+        if (slbEl) slbEl.textContent = totalCycles > 0 ? `Sessions (${totalCycles} Cyc)` : `Total Sessions`;
 
         // 2. Render Weekly Chart
         if (window.Chart && document.getElementById('focus-weekly-chart') && stats && stats.weekly) {
@@ -3417,10 +3462,10 @@ async function loadFocusStats() {
             });
         }
 
-        // 3. Render Top Tasks Breakdown
+        // 3. Render Top Tasks Breakdown (Doughnut chart with clear labels)
         if (window.Chart && document.getElementById('focus-task-chart') && stats && stats.tasks) {
             const ctx = document.getElementById('focus-task-chart').getContext('2d');
-            const labels = stats.tasks.map(t => t.task_label || 'General');
+            const labels = stats.tasks.map(t => `${t.task_label || 'Activity'} (${formatDuration(t.mins || 0)})`);
             const data = stats.tasks.map(t => t.mins || 0);
 
             if (focusTaskChartInstance) focusTaskChartInstance.destroy();
@@ -3487,7 +3532,7 @@ function renderFocusRecentList(sessions) {
 
     list.innerHTML = sessions.map(s => {
         const mins = s.total_minutes || 0;
-        const durStr = mins >= 60 ? `${(mins/60).toFixed(1)} hrs (${mins}m)` : `${mins} mins`;
+        const durStr = formatDuration(mins);
         const cat = getSessionCategoryBadge(s.task_label);
         const taskLabel = s.task_label || 'General / Uncategorized';
 
@@ -3498,7 +3543,7 @@ function renderFocusRecentList(sessions) {
                         <span class="text-[9px] font-bold px-2 py-0.5 rounded-md border font-mono flex items-center gap-1 ${cat.cls}">
                             <span class="material-symbols-outlined text-[11px]">${cat.icon}</span> ${cat.label}
                         </span>
-                        <span class="text-[10px] font-mono font-bold text-primary">${durStr}</span>
+                        <span class="text-[10px] font-mono font-bold text-primary">${durStr} (${mins}m)</span>
                         <span class="text-[9px] text-muted font-mono">${s.date || 'Today'}</span>
                     </div>
                     <p class="text-xs font-bold text-main truncate">${escapeHtml(taskLabel)}</p>
@@ -4169,162 +4214,7 @@ async function logFocusSession(customMins = null) {
     }
 }
 
-async function loadFocusStats() {
-    try {
-        const stats = await api('/api/focus/stats');
-        renderFocusStats(stats);
-    } catch(e) {
-        console.warn('[Focus] Could not load stats:', e);
-    }
-}
 
-function renderFocusStats(stats) {
-    if (!stats) return;
-
-    // --- Total Stats Banner ---
-    const totals = stats.totals || {};
-    const elTotalMin = document.getElementById('focus-total-minutes');
-    const elTotalSess = document.getElementById('focus-total-sessions');
-    const elTotalCyc = document.getElementById('focus-total-cycles');
-    if (elTotalMin) elTotalMin.textContent = (totals.total_minutes || 0) + 'm';
-    if (elTotalSess) elTotalSess.textContent = totals.total_sessions || 0;
-    if (elTotalCyc) elTotalCyc.textContent = totals.total_cycles || 0;
-
-    // --- Weekly Chart ---
-    renderFocusWeeklyChart(stats.weekly || []);
-
-    // --- Task Breakdown Chart ---
-    renderFocusTaskChart(stats.tasks || []);
-
-    // --- Recent Sessions List ---
-    renderRecentSessions(stats.recent || []);
-}
-
-function renderFocusWeeklyChart(weekData) {
-    const canvas = document.getElementById('focus-weekly-chart');
-    if (!canvas) return;
-
-    // Build full week Mon→Sun with 0s for missing days
-    const today = new Date();
-    const dayOfWeek = today.getDay(); // 0=Sun
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7));
-
-    const labels = [];
-    const values = [];
-    const dataMap = {};
-    weekData.forEach(r => { dataMap[r.date] = r.mins; });
-
-    const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(monday);
-        d.setDate(monday.getDate() + i);
-        const key = d.toISOString().split('T')[0];
-        labels.push(dayNames[i]);
-        values.push(dataMap[key] || 0);
-    }
-
-    if (window._focusWeekChart) window._focusWeekChart.destroy();
-    const ctx = canvas.getContext('2d');
-    const rootStyle = getComputedStyle(document.documentElement);
-    const primaryColor = rootStyle.getPropertyValue('--color-primary').trim() || '#e11d48';
-
-    window._focusWeekChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: [{
-                label: 'Focus Minutes',
-                data: values,
-                backgroundColor: values.map((v, i) => {
-                    const isToday = i === ((today.getDay() + 6) % 7);
-                    return isToday ? primaryColor : primaryColor + '55';
-                }),
-                borderRadius: 8,
-                borderSkipped: false,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { grid: { display: false }, ticks: { color: '#888', font: { size: 10, weight: 'bold' } } },
-                y: { grid: { color: 'rgba(128,128,128,0.1)' }, ticks: { color: '#888', font: { size: 10 } }, beginAtZero: true }
-            }
-        }
-    });
-}
-
-function renderFocusTaskChart(taskData) {
-    const canvas = document.getElementById('focus-task-chart');
-    if (!canvas) return;
-    if (!taskData.length) {
-        canvas.parentElement.innerHTML = '<p class="text-xs text-muted text-center py-4 font-medium">No task data yet. Label your next session!</p>';
-        return;
-    }
-
-    if (window._focusTaskChart) window._focusTaskChart.destroy();
-    const ctx = canvas.getContext('2d');
-    const rootStyle = getComputedStyle(document.documentElement);
-    const primaryColor = rootStyle.getPropertyValue('--color-primary').trim() || '#e11d48';
-
-    window._focusTaskChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: taskData.map(t => t.task_label.length > 18 ? t.task_label.slice(0,18)+'…' : t.task_label),
-            datasets: [{
-                label: 'Minutes',
-                data: taskData.map(t => t.mins),
-                backgroundColor: primaryColor + '99',
-                borderRadius: 6,
-                borderSkipped: false,
-            }]
-        },
-        options: {
-            indexAxis: 'y',
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { grid: { color: 'rgba(128,128,128,0.1)' }, ticks: { color: '#888', font: { size: 10 } }, beginAtZero: true },
-                y: { grid: { display: false }, ticks: { color: '#888', font: { size: 10, weight: 'bold' } } }
-            }
-        }
-    });
-}
-
-function renderRecentSessions(sessions) {
-    const container = document.getElementById('focus-recent-list');
-    if (!container) return;
-    if (!sessions.length) {
-        container.innerHTML = '<p class="text-xs text-muted text-center py-3 font-medium">No sessions yet. Start your first focus session!</p>';
-        return;
-    }
-    container.innerHTML = sessions.map(s => {
-        const label = s.task_label || 'Untitled Session';
-        const date = s.date || '';
-        const mins = s.total_minutes || 0;
-        const cycles = s.cycles_done || 1;
-        const dots = Array(cycles).fill('●').join(' ');
-        return `
-        <div class="flex items-center justify-between py-2 border-b last:border-0" style="border-color:var(--border-subtle)">
-            <div class="flex items-center gap-2.5 min-w-0">
-                <div class="w-7 h-7 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <span class="material-symbols-outlined text-[13px] text-primary">timer</span>
-                </div>
-                <div class="min-w-0">
-                    <p class="text-[11px] font-bold text-main truncate">${escapeHtml(label)}</p>
-                    <p class="text-[10px] text-muted font-mono">${date}</p>
-                </div>
-            </div>
-            <div class="text-right flex-shrink-0 ml-2">
-                <p class="text-[11px] font-black text-primary">${mins}m</p>
-                <p class="text-[10px] text-muted">${dots}</p>
-            </div>
-        </div>`;
-    }).join('');
-}
 
 function playCompletionChime() {
     try {

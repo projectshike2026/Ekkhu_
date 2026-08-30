@@ -2386,10 +2386,14 @@
     </div>
 
     <!-- Controls -->
-    <div class="flex items-center justify-center gap-3 px-5 pb-5">
-      <button onclick="togglePomodoroTimer()" id="pomo-modal-btn" class="cyber-glow-btn px-8 py-3 rounded-full text-white font-bold text-xs flex items-center gap-2 shadow-xl">
+    <div class="flex items-center justify-center gap-2.5 px-5 pb-5 flex-wrap">
+      <button onclick="togglePomodoroTimer()" id="pomo-modal-btn" class="cyber-glow-btn px-7 py-3 rounded-full text-white font-bold text-xs flex items-center gap-2 shadow-xl">
         <span class="material-symbols-outlined text-[20px]" id="pomo-modal-icon">play_arrow</span>
         <span id="pomo-modal-text">Start Focus</span>
+      </button>
+      <button onclick="finishAndSaveSession()" id="pomo-modal-done-btn" class="cyber-pill px-5 py-3 rounded-full text-emerald-500 hover:bg-emerald-500 hover:text-white font-bold text-xs flex items-center gap-1.5 transition-all border border-emerald-500/30 shadow" title="Complete and log session now">
+        <span class="material-symbols-outlined text-[18px]">check_circle</span>
+        <span>Done &amp; Save</span>
       </button>
       <button onclick="resetPomodoroTimer()" class="cyber-pill p-3 rounded-full text-muted hover:text-main" title="Reset Timer">
         <span class="material-symbols-outlined text-[18px]">replay</span>
@@ -2498,19 +2502,23 @@
         </button>
       </div>
 
-      <!-- Total Stats Row -->
-      <div class="grid grid-cols-3 gap-2 mb-4">
-        <div class="cyber-pill rounded-2xl p-3 text-center">
-          <p class="text-lg font-black font-mono text-primary" id="focus-total-minutes">0m</p>
+      <!-- Total Stats Row (4-Card Clear Categorized Breakdown) -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+        <div class="cyber-pill rounded-2xl p-3 text-center border">
+          <p class="text-base sm:text-lg font-black font-mono text-primary" id="focus-total-minutes">0h 0m</p>
           <p class="text-[9px] text-muted font-bold uppercase tracking-wide mt-0.5">Total Tracked</p>
         </div>
-        <div class="cyber-pill rounded-2xl p-3 text-center">
-          <p class="text-lg font-black font-mono text-primary" id="focus-total-sessions">0</p>
-          <p class="text-[9px] text-muted font-bold uppercase tracking-wide mt-0.5">Sessions</p>
+        <div class="cyber-pill rounded-2xl p-3 text-center border border-emerald-500/20 bg-emerald-500/5">
+          <p class="text-base sm:text-lg font-black font-mono text-emerald-500" id="focus-study-minutes">0h 0m</p>
+          <p class="text-[9px] text-muted font-bold uppercase tracking-wide mt-0.5">Study &amp; Focus</p>
         </div>
-        <div class="cyber-pill rounded-2xl p-3 text-center">
-          <p class="text-lg font-black font-mono text-primary" id="focus-total-cycles">0</p>
-          <p class="text-[9px] text-muted font-bold uppercase tracking-wide mt-0.5">Cycles Done</p>
+        <div class="cyber-pill rounded-2xl p-3 text-center border border-indigo-500/20 bg-indigo-500/5">
+          <p class="text-base sm:text-lg font-black font-mono text-indigo-400" id="focus-sleep-minutes">0h 0m</p>
+          <p class="text-[9px] text-muted font-bold uppercase tracking-wide mt-0.5">Sleep &amp; Rest</p>
+        </div>
+        <div class="cyber-pill rounded-2xl p-3 text-center border">
+          <p class="text-base sm:text-lg font-black font-mono text-main" id="focus-total-sessions">0</p>
+          <p class="text-[9px] text-muted font-bold uppercase tracking-wide mt-0.5" id="focus-total-sessions-label">Sessions</p>
         </div>
       </div>
 
@@ -3200,6 +3208,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="{{ url_for('static', filename='app.js') }}?v=3.2.0"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=3.3.0"></script>
 </body>
 </html>

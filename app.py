@@ -4069,7 +4069,14 @@ def focus_log():
     cycles_done    = int(data.get('cycles_done', 1))
     total_minutes  = int(data.get('total_minutes', 0))
     if total_minutes <= 0:
-        total_minutes = cycles_done * 25
+        total_minutes = max(1, cycles_done * 25)
+    
+    # Don't inflate cycles for sleep or stopwatch tracking
+    is_sleep_or_open = any(k in task_label.lower() for k in ['sleep', 'ঘুম', 'rest', 'nap', 'ন্যাপ', 'stopwatch', 'open-ended'])
+    if is_sleep_or_open or data.get('is_stopwatch', False):
+        cycles_done = 0
+        cycles_planned = 0
+
     today          = date.today().isoformat()
     started_at     = data.get('started_at', datetime.now().isoformat())
 
@@ -4138,7 +4145,9 @@ def focus_manual_log():
     total_minutes = int(data.get('total_minutes', 30))
     date_str = data.get('date', date.today().isoformat())
     started_at = data.get('started_at', datetime.now().isoformat())
-    cycles_done = max(1, round(total_minutes / 25))
+    
+    is_sleep = any(k in task_label.lower() for k in ['sleep', 'ঘুম', 'rest', 'nap', 'ন্যাপ', 'stopwatch'])
+    cycles_done = 0 if is_sleep else max(1, round(total_minutes / 25))
 
     conn = get_db(user_id)
     c = conn.cursor()
@@ -4169,11 +4178,11 @@ def focus_adjust_active():
     # 2. Check if a session was logged today with > 10 hours or if we should update latest
     latest = c.execute('SELECT id, total_minutes FROM focus_sessions ORDER BY id DESC LIMIT 1').fetchone()
     if latest and (latest['total_minutes'] > 600 or data.get('update_latest', False)):
-        c.execute('UPDATE focus_sessions SET total_minutes = ?, task_label = ? WHERE id = ?', 
+        c.execute('UPDATE focus_sessions SET total_minutes = ?, task_label = ?, cycles_done = 0 WHERE id = ?', 
                   (corrected_minutes, task_label, latest['id']))
     else:
         c.execute('INSERT INTO focus_sessions (task_label, cycles_planned, cycles_done, total_minutes, date, started_at) VALUES (?,?,?,?,?,?)',
-                  (task_label, max(1, round(corrected_minutes/25)), max(1, round(corrected_minutes/25)), corrected_minutes, date.today().isoformat(), datetime.now().isoformat()))
+                  (task_label, 0, 0, corrected_minutes, date.today().isoformat(), datetime.now().isoformat()))
 
     conn.commit()
     conn.close()
@@ -4209,15 +4218,34 @@ def focus_stats():
         "SELECT task_label, SUM(total_minutes) as mins, COUNT(*) as sessions FROM focus_sessions WHERE task_label != '' GROUP BY task_label ORDER BY mins DESC LIMIT 10"
     ).fetchall()
 
-    # Recent 15 sessions
+    # Recent 25 sessions
     recent_rows = c.execute(
-        'SELECT * FROM focus_sessions ORDER BY id DESC LIMIT 15'
+        'SELECT * FROM focus_sessions ORDER BY id DESC LIMIT 25'
     ).fetchall()
 
-    # Total stats
+    # Total stats & separate accurate breakdown for study vs sleep
     totals = c.execute(
-        'SELECT COUNT(*) as total_sessions, SUM(total_minutes) as total_minutes, SUM(cycles_done) as total_cycles FROM focus_sessions'
+        'SELECT COUNT(*) as total_sessions, SUM(total_minutes) as total_minutes FROM focus_sessions'
     ).fetchone()
+
+    study_row = c.execute(
+        "SELECT SUM(total_minutes) as mins FROM focus_sessions WHERE task_label NOT LIKE '%Sleep%' AND task_label NOT LIKE '%ঘুম%' AND task_label NOT LIKE '%Rest%' AND task_label NOT LIKE '%Nap%' AND task_label NOT LIKE '%ন্যাপ%'"
+    ).fetchone()
+
+    sleep_row = c.execute(
+        "SELECT SUM(total_minutes) as mins FROM focus_sessions WHERE task_label LIKE '%Sleep%' OR task_label LIKE '%ঘুম%' OR task_label LIKE '%Rest%' OR task_label LIKE '%Nap%' OR task_label LIKE '%ন্যাপ%'"
+    ).fetchone()
+
+    cycles_row = c.execute(
+        "SELECT SUM(cycles_done) as cyc FROM focus_sessions WHERE task_label NOT LIKE '%Sleep%' AND task_label NOT LIKE '%ঘুম%'"
+    ).fetchone()
+
+    totals_dict = dict(totals) if totals else {}
+    totals_dict['total_minutes'] = totals_dict.get('total_minutes') or 0
+    totals_dict['total_sessions'] = totals_dict.get('total_sessions') or 0
+    totals_dict['study_minutes'] = (study_row['mins'] if study_row and study_row['mins'] else 0)
+    totals_dict['sleep_minutes'] = (sleep_row['mins'] if sleep_row and sleep_row['mins'] else 0)
+    totals_dict['total_cycles'] = (cycles_row['cyc'] if cycles_row and cycles_row['cyc'] else 0)
 
     conn.close()
     return jsonify({
@@ -4225,7 +4253,7 @@ def focus_stats():
         'monthly':   [dict(r) for r in month_rows],
         'tasks':     [dict(r) for r in task_rows],
         'recent':    [dict(r) for r in recent_rows],
-        'totals':    dict(totals) if totals else {}
+        'totals':    totals_dict
     })
 
 
