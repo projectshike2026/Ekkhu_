@@ -1289,6 +1289,33 @@
         </div>
       </div>
 
+      <!-- 🤖 Proactive Assistant Check-in Dynamic Banner -->
+      <div id="dash-proactive-banner" class="hidden glass-card rounded-2xl p-4 md:p-5 border border-primary/40 bg-primary/5 shadow-lg relative overflow-hidden animate-fade-up">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
+          <div class="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div class="w-11 h-11 md:w-12 md:h-12 rounded-2xl flex items-center justify-center shrink-0 shadow text-white relative" style="background:var(--gradient-btn)">
+              <span class="material-symbols-outlined text-[24px]" id="proactive-nudge-icon">smart_toy</span>
+              <span class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900 animate-pulse"></span>
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 mb-1 flex-wrap">
+                <span id="proactive-nudge-badge" class="text-[9px] md:text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/25 font-mono uppercase tracking-wider">Ekkhu Checked In</span>
+                <span id="proactive-nudge-time" class="text-[10px] text-muted font-mono">Just now</span>
+              </div>
+              <p id="proactive-nudge-text" class="text-xs md:text-sm font-semibold text-main leading-relaxed">"Ki re, shara din kono khobor nai? Shob thik ache to?"</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
+            <button onclick="openChatFromProactive()" class="cyber-glow-btn px-4 py-2 rounded-xl text-white text-xs font-bold shadow-md flex items-center gap-1.5 transition-all">
+              <span class="material-symbols-outlined text-[16px]">chat</span> Chat with Ekkhu
+            </button>
+            <button onclick="dismissProactiveNudge()" class="cyber-pill rounded-xl p-2 text-muted hover:text-rose-400 transition-all" title="Dismiss">
+              <span class="material-symbols-outlined text-[16px]">close</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Executive Daily Briefing Hub (Morning Kickoff / Midday / Nightly Debrief) -->
       <div id="dash-daily-briefing-banner" class="glass-card rounded-2xl p-4 md:p-5 border border-primary/20 shadow-md relative overflow-hidden animate-fade-up">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
@@ -2087,6 +2114,53 @@
           <button onclick="logOut()" class="mt-4 flex items-center gap-2 text-xs font-bold text-rose-500 hover:underline transition-colors">
             <span class="material-symbols-outlined text-[16px]">logout</span> Sign Out of Session
           </button>
+        </div>
+
+        <!-- 🤖 Ekkhu Autonomous Proactive Companion Settings Card -->
+        <div class="lg:col-span-12 glass-card rounded-3xl p-5 space-y-4">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-start sm:items-center gap-3">
+              <div class="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 border border-primary/20">
+                <span class="material-symbols-outlined text-[22px]">smart_toy</span>
+              </div>
+              <div>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-muted font-mono">Ekkhu Autonomous Proactive Assistant</h3>
+                <p class="text-xs text-muted font-medium mt-0.5">Ekkhu autonomously checks in on your incomplete tasks, upcoming exams, and inactive days like a real friend.</p>
+              </div>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" id="proactive-assistant-toggle" onchange="toggleProactiveSetting(this.checked)" class="sr-only peer" checked>
+              <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+            </label>
+          </div>
+          
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t text-xs font-semibold" style="border-color:var(--border-subtle)">
+            <div class="cyber-pill p-3.5 rounded-2xl space-y-1 border">
+              <div class="flex items-center gap-1.5 text-muted text-[10px] uppercase font-bold">
+                <span class="material-symbols-outlined text-[14px]">bedtime</span> Quiet Hours
+              </div>
+              <p class="text-main font-mono text-xs">12:00 AM – 08:00 AM BD</p>
+              <p class="text-[9px] text-muted">No pings during sleep hours</p>
+            </div>
+            <div class="cyber-pill p-3.5 rounded-2xl space-y-1 border">
+              <div class="flex items-center gap-1.5 text-muted text-[10px] uppercase font-bold">
+                <span class="material-symbols-outlined text-[14px]">schedule</span> Daily Cadence
+              </div>
+              <p class="text-emerald-500 font-mono text-xs">Max 1-2 Check-ins / Day</p>
+              <p class="text-[9px] text-muted">Anti-spam smart cooldown</p>
+            </div>
+            <div class="cyber-pill p-3.5 rounded-2xl space-y-1 border flex flex-col justify-between">
+              <div>
+                <div class="flex items-center gap-1.5 text-muted text-[10px] uppercase font-bold">
+                  <span class="material-symbols-outlined text-[14px]">bolt</span> Instant Trigger
+                </div>
+                <p class="text-[9px] text-muted">Force Ekkhu to evaluate &amp; send a live check-in now</p>
+              </div>
+              <button onclick="triggerTestProactiveNudge()" id="btn-test-proactive" class="mt-2 cyber-glow-btn px-3 py-2 rounded-xl text-white text-[11px] font-bold shadow flex items-center justify-center gap-1.5">
+                <span class="material-symbols-outlined text-[14px]">play_arrow</span> Test Live Check-in
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

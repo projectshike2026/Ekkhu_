@@ -585,6 +585,9 @@ function bootApp() {
     loadTasks();
     initRobotInteractivePhysics();
     initPullToRefresh();
+    initNotificationPermission();
+    checkProactiveNudge();
+    loadProactiveSettings();
 
     if (isDesktopDevice()) {
         showView('dashboard');
@@ -600,6 +603,13 @@ function bootApp() {
     setInterval(() => {
         if (currentUserId) updateNextClassCountdown();
     }, 30000);
+
+    // Periodic proactive assistant poll every 3 minutes
+    if (!proactivePollTimer) {
+        proactivePollTimer = setInterval(() => {
+            if (currentUserId && sessionToken) checkProactiveNudge();
+        }, 180000);
+    }
 }
 
 function initGreeting() {
@@ -4704,4 +4714,177 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     initUserSelect();
+});
+
+// ════════════════════════════════════════════════════════════════
+//  EKKHU PROACTIVE AUTONOMOUS PERSONAL ASSISTANT CLIENT ENGINE
+// ════════════════════════════════════════════════════════════════
+let proactivePollTimer = null;
+
+async function checkProactiveNudge() {
+    if (!currentUserId || !sessionToken) return;
+    try {
+        const res = await api('/api/proactive/unread');
+        if (res && res.ok && res.unread && res.nudge) {
+            renderProactiveBanner(res.nudge);
+            triggerBrowserNotification(res.nudge.push_title || 'Ekkhu 💬', res.nudge.push_body || res.nudge.message);
+        } else {
+            const banner = document.getElementById('dash-proactive-banner');
+            if (banner && !banner.dataset.sticky) banner.classList.add('hidden');
+        }
+    } catch(e) {
+        console.debug('[Proactive] Check skipped:', e);
+    }
+}
+
+function renderProactiveBanner(nudge) {
+    const banner = document.getElementById('dash-proactive-banner');
+    if (!banner) return;
+
+    const txtEl = document.getElementById('proactive-nudge-text');
+    const badgeEl = document.getElementById('proactive-nudge-badge');
+    const timeEl = document.getElementById('proactive-nudge-time');
+    const iconEl = document.getElementById('proactive-nudge-icon');
+
+    if (txtEl) txtEl.textContent = `"${sanitizeChatMessage(nudge.message)}"`;
+    
+    const badgeMap = {
+        'EXAM_ALERT': { label: 'Exam Countdown Alert 📚', icon: 'school' },
+        'OVERDUE_TASK_FOLLOWUP': { label: 'Overdue Task Follow-up ⚠️', icon: 'priority_high' },
+        'TASK_FOLLOWUP': { label: 'Task Accountability Check ⚡', icon: 'task_alt' },
+        'INACTIVITY_NUDGE': { label: 'Ekkhu Checked In on You ❤️', icon: 'waving_hand' },
+        'MORNING_ROUTINE': { label: 'Morning Kickoff ☀️', icon: 'wb_sunny' },
+        'MANUAL_CHECKIN': { label: 'Live Assistant Check-in 🤖', icon: 'smart_toy' }
+    };
+    const bInfo = badgeMap[nudge.trigger_type] || { label: 'Ekkhu Checked In', icon: 'smart_toy' };
+    
+    if (badgeEl) badgeEl.textContent = bInfo.label;
+    if (iconEl) iconEl.textContent = bInfo.icon;
+    if (timeEl) {
+        try {
+            const dt = new Date(nudge.timestamp);
+            timeEl.textContent = isNaN(dt) ? 'Just now' : dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch(_) {
+            timeEl.textContent = 'Just now';
+        }
+    }
+
+    banner.classList.remove('hidden');
+    banner.dataset.sticky = 'true';
+}
+
+function dismissProactiveNudge() {
+    playHaptic('tap');
+    const banner = document.getElementById('dash-proactive-banner');
+    if (banner) {
+        banner.classList.add('hidden');
+        delete banner.dataset.sticky;
+    }
+    api('/api/proactive/dismiss', 'POST').catch(() => {});
+}
+
+function openChatFromProactive() {
+    playHaptic('tap');
+    dismissProactiveNudge();
+    showView('chat');
+}
+
+async function loadProactiveSettings() {
+    try {
+        const res = await api('/api/proactive/settings');
+        if (res && res.ok && res.settings) {
+            const tog = document.getElementById('proactive-assistant-toggle');
+            if (tog) tog.checked = Boolean(res.settings.enabled);
+        }
+    } catch(e) {}
+}
+
+async function toggleProactiveSetting(enabled) {
+    playHaptic('tap');
+    try {
+        await api('/api/proactive/settings', 'POST', { enabled: Boolean(enabled) });
+        toast(enabled ? '✅ Ekkhu Proactive Assistant enabled' : '⏸️ Proactive Assistant paused', 'info');
+    } catch(e) {
+        toast('Failed to save setting', 'error');
+    }
+}
+
+async function triggerTestProactiveNudge() {
+    playHaptic('tap');
+    const btn = document.getElementById('btn-test-proactive');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="material-symbols-outlined text-[14px] animate-spin">refresh</span> Evaluating...`;
+    }
+    try {
+        const res = await api('/api/proactive/test_trigger', 'POST');
+        if (res && res.triggered) {
+            toast('🤖 Ekkhu generated a live check-in!', 'success');
+            playHaptic('success');
+            renderProactiveBanner({
+                message: res.message,
+                trigger_type: res.trigger_type,
+                timestamp: new Date().toISOString(),
+                push_title: res.push_title,
+                push_body: res.push_body
+            });
+            // Reload chat history so it appears in Chat view immediately
+            if (isDesktopDevice()) {
+                loadDesktopChatHistory();
+            } else {
+                loadMobileChatHistory();
+            }
+        } else {
+            toast(res.reason || 'No check-in needed right now', 'info');
+        }
+    } catch(e) {
+        toast('Check-in test failed: ' + e.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<span class="material-symbols-outlined text-[14px]">play_arrow</span> Test Live Check-in`;
+        }
+    }
+}
+
+// ── Web Notifications Integration ────────────────────────────────
+function initNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        const reqOnce = () => {
+            Notification.requestPermission().catch(() => {});
+            window.removeEventListener('click', reqOnce);
+        };
+        window.addEventListener('click', reqOnce, { once: true });
+    }
+}
+
+function triggerBrowserNotification(title, body) {
+    try {
+        if ('Notification' in window && Notification.permission === 'granted') {
+            const notif = new Notification(title || 'Ekkhu 💬', {
+                body: body || 'You have a new check-in from Ekkhu.',
+                icon: '/static/icon.png',
+                tag: 'ekkhu-proactive'
+            });
+            notif.onclick = () => {
+                window.focus();
+                showView('chat');
+            };
+        }
+    } catch(e) {
+        console.debug('[Notification] Failed to trigger:', e);
+    }
+}
+
+// Tab Focus & Visibility Proactive Triggers
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && currentUserId && sessionToken) {
+        checkProactiveNudge();
+    }
+});
+
+window.addEventListener('focus', () => {
+    if (currentUserId && sessionToken) {
+        checkProactiveNudge();
+    }
 });

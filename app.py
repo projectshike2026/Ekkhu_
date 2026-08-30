@@ -508,7 +508,7 @@ SYNCED_TABLES = [
     "routine", "attendance", "budget", "tasks", "plans", 
     "grades", "chat_history", "long_term_memory", 
     "focus_sessions", "exams", "academic_profile", 
-    "academic_state", "schedule_exceptions"
+    "academic_state", "schedule_exceptions", "proactive_state"
 ]
 
 class TursoSyncManager:
@@ -849,6 +849,17 @@ def init_db_schema(conn):
         reason TEXT DEFAULT '',
         created_at TEXT DEFAULT ''
     )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS proactive_state (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        last_checkin_ts TEXT DEFAULT '',
+        last_trigger_type TEXT DEFAULT '',
+        enabled INTEGER DEFAULT 1,
+        quiet_hours_start INTEGER DEFAULT 0,
+        quiet_hours_end INTEGER DEFAULT 8,
+        min_gap_hours REAL DEFAULT 6.0
+    )''')
+    c.execute('INSERT OR IGNORE INTO proactive_state (id, last_checkin_ts, last_trigger_type, enabled) VALUES (1, "", "", 1)')
     conn.commit()
 
 def init_db(user_id='A'):
@@ -1955,6 +1966,389 @@ def get_user_context(user_id, conn=None):
     return ctx
 
 # ------------------------------------------------------------------
+# Proactive Autonomous Personal Assistant Engine
+# ------------------------------------------------------------------
+_recent_proactive_notifications = {}  # {user_id: {"message": str, "timestamp": str, "trigger_type": str, "emotion": str, "unread": bool}}
+
+class ProactiveAssistantEngine:
+    def __init__(self):
+        self._lock = threading.Lock()
+
+    def get_proactive_state(self, user_id, conn=None):
+        close_after = False
+        if conn is None:
+            conn = get_db(user_id)
+            close_after = True
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS proactive_state (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            last_checkin_ts TEXT DEFAULT '',
+            last_trigger_type TEXT DEFAULT '',
+            enabled INTEGER DEFAULT 1,
+            quiet_hours_start INTEGER DEFAULT 0,
+            quiet_hours_end INTEGER DEFAULT 8,
+            min_gap_hours REAL DEFAULT 6.0
+        )''')
+        c.execute('INSERT OR IGNORE INTO proactive_state (id, last_checkin_ts, last_trigger_type, enabled) VALUES (1, "", "", 1)')
+        row = c.execute('SELECT last_checkin_ts, last_trigger_type, enabled, quiet_hours_start, quiet_hours_end, min_gap_hours FROM proactive_state WHERE id=1').fetchone()
+        res = {
+            "last_checkin_ts": row['last_checkin_ts'] if hasattr(row, '__getitem__') and row['last_checkin_ts'] is not None else "",
+            "last_trigger_type": row['last_trigger_type'] if hasattr(row, '__getitem__') and row['last_trigger_type'] is not None else "",
+            "enabled": bool(row['enabled']) if hasattr(row, '__getitem__') else True,
+            "quiet_hours_start": row['quiet_hours_start'] if hasattr(row, '__getitem__') and row['quiet_hours_start'] is not None else 0,
+            "quiet_hours_end": row['quiet_hours_end'] if hasattr(row, '__getitem__') and row['quiet_hours_end'] is not None else 8,
+            "min_gap_hours": float(row['min_gap_hours']) if hasattr(row, '__getitem__') and row['min_gap_hours'] is not None else 6.0
+        }
+        if close_after:
+            conn.close()
+        return res
+
+    def update_proactive_state(self, user_id, last_checkin_ts=None, last_trigger_type=None, enabled=None, quiet_hours_start=None, quiet_hours_end=None, min_gap_hours=None, conn=None):
+        close_after = False
+        if conn is None:
+            conn = get_db(user_id)
+            close_after = True
+        c = conn.cursor()
+        updates = []
+        vals = []
+        if last_checkin_ts is not None:
+            updates.append("last_checkin_ts = ?")
+            vals.append(last_checkin_ts)
+        if last_trigger_type is not None:
+            updates.append("last_trigger_type = ?")
+            vals.append(last_trigger_type)
+        if enabled is not None:
+            updates.append("enabled = ?")
+            vals.append(1 if enabled else 0)
+        if quiet_hours_start is not None:
+            updates.append("quiet_hours_start = ?")
+            vals.append(int(quiet_hours_start))
+        if quiet_hours_end is not None:
+            updates.append("quiet_hours_end = ?")
+            vals.append(int(quiet_hours_end))
+        if min_gap_hours is not None:
+            updates.append("min_gap_hours = ?")
+            vals.append(float(min_gap_hours))
+        if updates:
+            vals.append(1)
+            c.execute(f"UPDATE proactive_state SET {', '.join(updates)} WHERE id=?", vals)
+            conn.commit()
+        if close_after:
+            conn.close()
+
+    def generate_proactive_message(self, user_id, trigger_type, context_dict):
+        """Use Gemini LLM (with robust fallback) to generate an authentic Banglish proactive message in Ekkhu's personality."""
+        user_name = context_dict.get('user_name', 'Scholar')
+        time_str = context_dict.get('current_time', '')
+        day_name = context_dict.get('day_name', '')
+        hours_inactive = context_dict.get('hours_inactive', 0)
+        urgent_exams = context_dict.get('urgent_exams', [])
+        overdue_tasks = context_dict.get('overdue_tasks', [])
+        pending_tasks = context_dict.get('pending_tasks', [])
+        today_classes = context_dict.get('today_classes', [])
+
+        prompt = f"""You are EKKHU — an affectionate, witty, super-smart AI personal companion and clone of Arnob.
+You are initiating an autonomous, spontaneous conversation with your user/friend named: {user_name}.
+Current Time: {time_str} ({day_name}).
+Trigger Type: {trigger_type}
+
+Live Context for {user_name}:
+- Hours since last interaction: {hours_inactive} hours
+- Urgent Exams/Quizzes: {', '.join(urgent_exams) if urgent_exams else 'None'}
+- Overdue Tasks: {', '.join(overdue_tasks) if overdue_tasks else 'None'}
+- Pending Tasks Today: {', '.join(pending_tasks) if pending_tasks else 'None'}
+- Today's Classes: {', '.join(today_classes) if today_classes else 'None / Free Day'}
+
+Goal:
+Reach out to {user_name} proactively like a real close friend / hyper-intelligent personal assistant who cares about them.
+Speak in your signature natural colloquial Banglish (Bangla written in English script or pure conversational Bangla with natural English terms).
+Keep it short (1 to 2 punchy, caring, witty sentences).
+
+Rules:
+1. If Trigger is 'EXAM_ALERT': Ask specifically about their preparation for the upcoming exam in a caring, encouraging way.
+2. If Trigger is 'OVERDUE_TASK_FOLLOWUP' or 'TASK_FOLLOWUP': Inquire directly about the specific task progress playfully (e.g. "Oi, tor [task] ta ki sesh hoise?").
+3. If Trigger is 'INACTIVITY_NUDGE': Point out that they have been MIA all day / haven't chatted, and ask how their day went (e.g. "Ki re, shara din kono khobor nai? Bhulei geli naki? Shob thik ache to?").
+4. If Trigger is 'MORNING_ROUTINE': Wish a great morning, mention today's class kickoff.
+5. If Trigger is 'MANUAL_CHECKIN': Give a warm, witty personal check-in.
+
+Output MUST be strictly valid JSON in this format:
+{{
+  "reply": ["Short sentence 1", "Short sentence 2"],
+  "emotion": "curious",
+  "push_title": "Ekkhu 💬",
+  "push_body": "Short 1-line notification summary"
+}}
+"""
+        messages = [{"role": "user", "content": prompt}]
+        try:
+            raw_res = call_llm(messages, endpoint="PROACTIVE_ASSISTANT")
+            data = safe_parse_json(raw_res)
+            if data and "reply" in data:
+                reply = data["reply"] if isinstance(data["reply"], list) else [str(data["reply"])]
+                emotion = data.get("emotion", "curious")
+                push_title = data.get("push_title", "Ekkhu 💬")
+                push_body = data.get("push_body", " ".join(reply))
+                return {"reply": reply, "emotion": emotion, "push_title": push_title, "push_body": push_body}
+        except Exception as e:
+            print(f"[PROACTIVE] LLM generation warning ({e}), using dynamic fallback template.")
+
+        # Fallback templates in authentic Banglish
+        if trigger_type == "EXAM_ALERT" and urgent_exams:
+            exam_name = urgent_exams[0]
+            reply = [f"Oi {user_name}, tor {exam_name} er preparation koto dur?", "Kono topic a jam lagle bolish, help korbo! 📚"]
+            emo = "concerned"
+        elif (trigger_type in ["OVERDUE_TASK_FOLLOWUP", "TASK_FOLLOWUP"]) and (overdue_tasks or pending_tasks):
+            t_name = overdue_tasks[0] if overdue_tasks else pending_tasks[0]
+            reply = [f"Ki re {user_name}, tor '{t_name}' ta ki sesh hoise?", "Pore thakle ekhoni boshe sesh kore fel! ⚡"]
+            emo = "curious"
+        elif trigger_type == "MORNING_ROUTINE":
+            reply = [f"Good morning {user_name}! ☀️", "Ajker routine dekhe ready hoye neo, din ta jate productive jay!"]
+            emo = "warm"
+        else:
+            reply = [f"Ki re {user_name}, shara din kono khobor nai?", "Bhulei geli naki? Ajker din kemon gelo shob thik ache to? 😊"]
+            emo = "playful"
+
+        return {
+            "reply": reply,
+            "emotion": emo,
+            "push_title": "Ekkhu 💬",
+            "push_body": " ".join(reply)
+        }
+
+    def deliver_proactive_message(self, user_id, trigger_type, msg_data):
+        """Save proactive message to chat history, record state, and register notification."""
+        reply_list = msg_data.get('reply', [])
+        full_text = " ".join(reply_list) if isinstance(reply_list, list) else str(reply_list)
+        emotion = msg_data.get('emotion', 'curious')
+        push_title = msg_data.get('push_title', 'Ekkhu 💬')
+        push_body = msg_data.get('push_body', full_text)
+
+        # 1. Save to chat history
+        save_message(user_id, 'assistant', full_text, emotion)
+
+        # 2. Update state
+        now_str = now_bd_iso()
+        self.update_proactive_state(user_id, last_checkin_ts=now_str, last_trigger_type=trigger_type)
+
+        # 3. Store notification for frontend retrieval
+        _recent_proactive_notifications[user_id] = {
+            "message": full_text,
+            "reply_list": reply_list,
+            "timestamp": now_str,
+            "trigger_type": trigger_type,
+            "emotion": emotion,
+            "push_title": push_title,
+            "push_body": push_body,
+            "unread": True
+        }
+
+        # 4. Asynchronously replicate to Turso Cloud
+        TURSO_SYNC.trigger_async_push(user_id)
+        print(f"[PROACTIVE] Delivered autonomous {trigger_type} check-in to user {user_id}: {full_text[:60]}...")
+        return {"ok": True, "delivered": True, "message": full_text}
+
+    def evaluate_and_trigger(self, user_id, force=False):
+        """Evaluate if user is eligible for an autonomous check-in and trigger it."""
+        with self._lock:
+            try:
+                conn = get_db(user_id)
+                state = self.get_proactive_state(user_id, conn=conn)
+                if not force and not state['enabled']:
+                    conn.close()
+                    return {"triggered": False, "reason": "Proactive assistant disabled in settings"}
+
+                now = now_bd()
+                current_hour = now.hour
+                q_start = state['quiet_hours_start']
+                q_end = state['quiet_hours_end']
+
+                # Quiet Hours Check
+                if not force:
+                    if q_start < q_end:
+                        if q_start <= current_hour < q_end:
+                            conn.close()
+                            return {"triggered": False, "reason": f"Quiet hours active ({q_start}:00 - {q_end}:00)"}
+                    else:
+                        if current_hour >= q_start or current_hour < q_end:
+                            conn.close()
+                            return {"triggered": False, "reason": f"Quiet hours active ({q_start}:00 - {q_end}:00)"}
+
+                # Cooldown Check
+                last_checkin_str = state['last_checkin_ts']
+                if not force and last_checkin_str:
+                    try:
+                        last_dt = datetime.fromisoformat(last_checkin_str)
+                        if last_dt.tzinfo is None:
+                            last_dt = last_dt.replace(tzinfo=BD_TZ)
+                        hours_since_checkin = (now - last_dt.astimezone(BD_TZ)).total_seconds() / 3600
+                        if hours_since_checkin < state['min_gap_hours']:
+                            conn.close()
+                            return {"triggered": False, "reason": f"Cooldown active ({hours_since_checkin:.1f}h < {state['min_gap_hours']}h)"}
+                    except Exception:
+                        pass
+
+                # Check last chat message
+                c = conn.cursor()
+                last_msg_row = c.execute('SELECT timestamp, role, content FROM chat_history ORDER BY id DESC LIMIT 1').fetchone()
+                hours_since_last_msg = 999.0
+                last_role = 'none'
+                if last_msg_row and last_msg_row[0]:
+                    try:
+                        l_dt = datetime.fromisoformat(last_msg_row[0])
+                        if l_dt.tzinfo is None:
+                            l_dt = l_dt.replace(tzinfo=BD_TZ)
+                        hours_since_last_msg = (now - l_dt.astimezone(BD_TZ)).total_seconds() / 3600
+                        last_role = last_msg_row[1]
+                    except Exception:
+                        pass
+
+                # If user actively chatted recently (< 2 hours), do not disturb
+                if not force and hours_since_last_msg < 2.0:
+                    conn.close()
+                    return {"triggered": False, "reason": f"User active recently ({hours_since_last_msg:.1f}h ago)"}
+
+                # If last message was from assistant and user has not replied yet, wait at least 8 hours
+                if not force and last_role == 'assistant' and hours_since_last_msg < 8.0:
+                    conn.close()
+                    return {"triggered": False, "reason": f"Waiting for user to reply to previous assistant message ({hours_since_last_msg:.1f}h ago)"}
+
+                today_str = now.strftime('%Y-%m-%d')
+                tomorrow_str = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+                day_name = now.strftime('%A')
+                days_map = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat', 6: 'Sun'}
+                today_code = days_map[now.weekday()]
+
+                # Upcoming exams
+                exams_rows = c.execute('SELECT title, course, type, date, time, notes FROM exams WHERE date >= ? ORDER BY date ASC', (today_str,)).fetchall()
+                urgent_exams = []
+                for ex in exams_rows:
+                    e_title = decrypt_text(ex['title']) if hasattr(ex, '__getitem__') else ''
+                    e_course = decrypt_text(ex['course']) if hasattr(ex, '__getitem__') else ''
+                    e_type = ex['type'] if hasattr(ex, '__getitem__') else 'Quiz'
+                    e_date = ex['date'] if hasattr(ex, '__getitem__') else ''
+                    e_time = ex['time'] if hasattr(ex, '__getitem__') else ''
+                    if e_date == today_str:
+                        urgent_exams.append(f"Today's {e_course} {e_type} ({e_title} at {e_time})")
+                    elif e_date == tomorrow_str:
+                        urgent_exams.append(f"Tomorrow's {e_course} {e_type} ({e_title} at {e_time})")
+
+                # Incomplete tasks
+                tasks_rows = c.execute('SELECT title, date, priority, done FROM tasks WHERE done=0 ORDER BY id DESC').fetchall()
+                pending_tasks = []
+                overdue_tasks = []
+                for tk in tasks_rows:
+                    t_title = decrypt_text(tk['title']) if hasattr(tk, '__getitem__') else ''
+                    t_dl = tk['date'] if hasattr(tk, '__getitem__') else ''
+                    t_prio = tk['priority'] if hasattr(tk, '__getitem__') else 'normal'
+                    task_desc = f"{t_title}"
+                    if t_dl:
+                        if t_dl < today_str:
+                            overdue_tasks.append(f"{task_desc} (Overdue: {t_dl})")
+                        elif t_dl == today_str:
+                            pending_tasks.append(f"{task_desc} (Due Today)")
+                        else:
+                            pending_tasks.append(f"{task_desc}")
+                    else:
+                        pending_tasks.append(task_desc)
+
+                # Today's classes
+                routine_rows = c.execute('SELECT time, course, room FROM routine WHERE day=? ORDER BY time ASC', (today_code,)).fetchall()
+                today_classes = [f"{decrypt_text(r['course'])} at {r['time']}" for r in routine_rows]
+
+                users = load_users()
+                user_info = next((u for u in users if u['id'] == user_id), None)
+                user_name = user_info['name'] if user_info else f"User {user_id}"
+
+                conn.close()
+
+                # Determine trigger
+                trigger_type = None
+                context_info = {
+                    "user_name": user_name,
+                    "hours_inactive": round(hours_since_last_msg, 1),
+                    "day_name": day_name,
+                    "current_time": now.strftime('%I:%M %p'),
+                    "urgent_exams": urgent_exams,
+                    "pending_tasks": pending_tasks[:3],
+                    "overdue_tasks": overdue_tasks[:2],
+                    "today_classes": today_classes
+                }
+
+                if urgent_exams:
+                    trigger_type = "EXAM_ALERT"
+                elif overdue_tasks:
+                    trigger_type = "OVERDUE_TASK_FOLLOWUP"
+                elif pending_tasks and (hours_since_last_msg >= 5.0 or force):
+                    trigger_type = "TASK_FOLLOWUP"
+                elif hours_since_last_msg >= 12.0 or (hours_since_last_msg >= 6.0 and current_hour >= 18):
+                    trigger_type = "INACTIVITY_NUDGE"
+                elif today_classes and current_hour < 12 and hours_since_last_msg >= 4.0:
+                    trigger_type = "MORNING_ROUTINE"
+                elif force:
+                    trigger_type = "MANUAL_CHECKIN"
+
+                if not trigger_type:
+                    return {"triggered": False, "reason": "No actionable trigger condition met"}
+
+                msg_data = self.generate_proactive_message(user_id, trigger_type, context_info)
+                if not msg_data or not msg_data.get('reply'):
+                    return {"triggered": False, "reason": "Failed to generate message"}
+
+                res = self.deliver_proactive_message(user_id, trigger_type, msg_data)
+                return {
+                    "triggered": True,
+                    "trigger_type": trigger_type,
+                    "message": res["message"],
+                    "emotion": msg_data.get("emotion", "curious"),
+                    "push_title": msg_data.get("push_title", "Ekkhu 💬"),
+                    "push_body": msg_data.get("push_body", res["message"])
+                }
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                return {"triggered": False, "error": str(e)}
+
+    def get_unread_nudge(self, user_id):
+        """Return unread proactive notification for the user, if available."""
+        notif = _recent_proactive_notifications.get(user_id)
+        if notif and notif.get('unread'):
+            return notif
+        return None
+
+    def mark_read(self, user_id):
+        """Mark proactive notification as read / dismissed."""
+        if user_id in _recent_proactive_notifications:
+            _recent_proactive_notifications[user_id]['unread'] = False
+
+PROACTIVE_ENGINE = ProactiveAssistantEngine()
+
+def _proactive_worker_loop():
+    """Autonomous background worker loop: periodically evaluates registered users for intelligent check-ins."""
+    import time
+    time.sleep(20)  # Wait 20 seconds after server startup
+    while True:
+        try:
+            users = load_users()
+            for u in users:
+                uid = u.get('id')
+                if uid:
+                    PROACTIVE_ENGINE.evaluate_and_trigger(uid)
+                    time.sleep(2)
+        except Exception as e:
+            print("[PROACTIVE_WORKER] Error in evaluation loop:", e)
+        time.sleep(1800)  # Evaluate every 30 minutes
+
+def start_proactive_worker():
+    t = threading.Thread(target=_proactive_worker_loop, daemon=True)
+    t.start()
+    print("[PROACTIVE] Background Autonomous Assistant Worker started.")
+
+# Start background autonomous evaluation loop
+try:
+    start_proactive_worker()
+except Exception as _pe:
+    print("[PROACTIVE] Warning starting background worker:", _pe)
+
+# ------------------------------------------------------------------
 # Routes — Auth & Users
 # ------------------------------------------------------------------
 @app.route('/')
@@ -2106,6 +2500,65 @@ def api_change_invite_code():
     cfg['invite_code'] = new_code
     save_config(cfg)
     return jsonify({"ok": True})
+
+# ------------------------------------------------------------------
+# Routes — Proactive Personal Assistant
+# ------------------------------------------------------------------
+@app.route('/api/proactive/unread', methods=['GET'])
+def api_proactive_unread():
+    """Return unread proactive assistant check-in for current active session."""
+    user_id = get_current_user_id()
+    nudge = PROACTIVE_ENGINE.get_unread_nudge(user_id)
+    if nudge:
+        return jsonify({"ok": True, "unread": True, "nudge": nudge})
+    return jsonify({"ok": True, "unread": False})
+
+@app.route('/api/proactive/check', methods=['POST'])
+def api_proactive_check():
+    """Evaluate and trigger proactive nudge for user if conditions are met."""
+    user_id = get_current_user_id()
+    res = PROACTIVE_ENGINE.evaluate_and_trigger(user_id, force=False)
+    return jsonify(res)
+
+@app.route('/api/proactive/test_trigger', methods=['POST'])
+def api_proactive_test_trigger():
+    """Force-trigger an instant autonomous check-in for testing."""
+    user_id = get_current_user_id()
+    res = PROACTIVE_ENGINE.evaluate_and_trigger(user_id, force=True)
+    return jsonify(res)
+
+@app.route('/api/proactive/dismiss', methods=['POST'])
+def api_proactive_dismiss():
+    """Dismiss the active proactive notification badge/toast."""
+    user_id = get_current_user_id()
+    PROACTIVE_ENGINE.mark_read(user_id)
+    return jsonify({"ok": True})
+
+@app.route('/api/proactive/settings', methods=['GET'])
+def api_proactive_get_settings():
+    """Get proactive check-in settings for current user."""
+    user_id = get_current_user_id()
+    state = PROACTIVE_ENGINE.get_proactive_state(user_id)
+    return jsonify({"ok": True, "settings": state})
+
+@app.route('/api/proactive/settings', methods=['POST'])
+def api_proactive_save_settings():
+    """Update proactive check-in settings."""
+    user_id = get_current_user_id()
+    data = request.json or {}
+    enabled = data.get('enabled')
+    q_start = data.get('quiet_hours_start')
+    q_end = data.get('quiet_hours_end')
+    min_gap = data.get('min_gap_hours')
+    
+    PROACTIVE_ENGINE.update_proactive_state(
+        user_id,
+        enabled=enabled,
+        quiet_hours_start=q_start,
+        quiet_hours_end=q_end,
+        min_gap_hours=min_gap
+    )
+    return jsonify({"ok": True, "message": "Proactive assistant settings updated."})
 
 # ------------------------------------------------------------------
 # Routes — Voice Input (Speech to Text)
