@@ -403,21 +403,26 @@ _TURSO_HTTP_SESSION.mount('http://', _turso_adapter)
 
 class TursoRow:
     def __init__(self, cols, vals):
-        self._cols = cols
-        self._vals = vals
+        self._cols = list(cols)
+        self._vals = list(vals)
         self._d = dict(zip(cols, vals))
     def __getitem__(self, key):
         if isinstance(key, int): return self._vals[key]
-        return self._d[key]
+        return self._d.get(key)
     def get(self, key, default=None): return self._d.get(key, default)
     def __iter__(self): return iter(self._vals)
+    def __len__(self): return len(self._vals)
     def keys(self): return self._cols
+    def values(self): return self._vals
+    def items(self): return self._d.items()
 
 class TursoCursor:
     def __init__(self, conn, user_id):
         self.conn = conn
         self.user_id = user_id
         self.rows = []
+        self.cols = []
+        self.description = []
         self._row_idx = 0
         self.row_factory = None
         self.tables = [
@@ -450,7 +455,7 @@ class TursoCursor:
         http_url = self.conn.url.replace("libsql://", "https://") + "/v2/pipeline"
         
         try:
-            resp = _TURSO_HTTP_SESSION.post(http_url, headers=headers, json=payload, timeout=6)
+            resp = _TURSO_HTTP_SESSION.post(http_url, headers=headers, json=payload, timeout=8)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
@@ -460,10 +465,12 @@ class TursoCursor:
         if result.get("type") == "ok":
             res = result["response"]["result"]
             cols = [c["name"] for c in res.get("cols", [])]
+            self.cols = cols
+            self.description = [(c, None, None, None, None, None, None) for c in cols]
             self.rows = []
             for r in res.get("rows", []):
                 vals = [val.get("value") if val.get("type") != "null" else None for val in r]
-                self.rows.append(TursoRow(cols, vals) if self.row_factory else vals)
+                self.rows.append(TursoRow(cols, vals))
         else:
             err = str(result.get("error"))
             if "no such table" in err.lower():
@@ -534,8 +541,8 @@ class TursoSyncManager:
                     gc.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
                     gc.execute("SELECT key, value FROM global_store")
                     for row in gc.fetchall():
-                        k = row[0] if isinstance(row, (tuple, list)) else row.get('key')
-                        v = row[1] if isinstance(row, (tuple, list)) else row.get('value')
+                        k = row.get('key') if hasattr(row, 'get') else (row[0] if len(row) > 0 else None)
+                        v = row.get('value') if hasattr(row, 'get') else (row[1] if len(row) > 1 else None)
                         if k == 'users_config' and v:
                             try:
                                 cfg = json.loads(v)
@@ -578,11 +585,15 @@ class TursoSyncManager:
 
                     for tbl in SYNCED_TABLES:
                         rows = None
+                        matched_cols = None
                         
                         # Priority 1: Standard table name (e.g. u1_chat_history)
                         try:
                             gc.execute(f"SELECT * FROM {uid}_{tbl}")
-                            rows = gc.fetchall()
+                            fetched = gc.fetchall()
+                            if fetched:
+                                rows = fetched
+                                matched_cols = gc.cols
                         except Exception:
                             pass
 
@@ -590,7 +601,10 @@ class TursoSyncManager:
                         if not rows:
                             try:
                                 gc.execute(f"SELECT * FROM {uid}_{uid}_{tbl}")
-                                rows = gc.fetchall()
+                                fetched = gc.fetchall()
+                                if fetched:
+                                    rows = fetched
+                                    matched_cols = gc.cols
                             except Exception:
                                 pass
 
@@ -598,20 +612,33 @@ class TursoSyncManager:
                         if not rows and uid == 'u1':
                             try:
                                 gc.execute(f"SELECT * FROM A_{tbl}")
-                                rows = gc.fetchall()
+                                fetched = gc.fetchall()
+                                if fetched:
+                                    rows = fetched
+                                    matched_cols = gc.cols
                             except Exception:
                                 pass
 
-                        if rows:
-                            cols = list(rows[0].keys())
-                            placeholders = ",".join(["?"] * len(cols))
-                            col_str = ",".join(cols)
+                        if rows and matched_cols:
+                            # Query local table schema to get common valid columns
+                            lc.execute(f"PRAGMA table_info({tbl})")
+                            local_cols = [col_info['name'] for col_info in lc.fetchall()]
                             
-                            lc.execute(f"DELETE FROM {tbl}")
-                            for r in rows:
-                                vals = [r[c] for c in cols]
-                                lc.execute(f"INSERT OR REPLACE INTO {tbl} ({col_str}) VALUES ({placeholders})", vals)
-                                total_records += 1
+                            common_cols = [c for c in matched_cols if c in local_cols]
+                            if common_cols:
+                                placeholders = ",".join(["?"] * len(common_cols))
+                                col_str = ",".join(common_cols)
+                                
+                                lc.execute(f"DELETE FROM {tbl}")
+                                for r in rows:
+                                    if hasattr(r, 'get'):
+                                        vals = [r.get(c) for c in common_cols]
+                                    elif isinstance(r, (list, tuple)):
+                                        vals = [r[matched_cols.index(c)] if c in matched_cols and matched_cols.index(c) < len(r) else None for c in common_cols]
+                                    else:
+                                        vals = [r[c] for c in common_cols]
+                                    lc.execute(f"INSERT OR REPLACE INTO {tbl} ({col_str}) VALUES ({placeholders})", vals)
+                                    total_records += 1
 
                     local_conn.commit()
                     local_conn.close()
