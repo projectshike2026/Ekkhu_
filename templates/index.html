@@ -1210,7 +1210,10 @@
       </div>
 
       <div>
-        <p class="px-3 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted font-mono">Life &amp; Budget</p>
+        <p class="px-3 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted font-mono">Life &amp; Time Tracking</p>
+        <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer" data-view="activity" onclick="showView('activity')">
+          <span class="material-symbols-outlined text-[19px]">schedule</span> Activity &amp; Sleep Log
+        </a>
         <a class="nav-item flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer" data-view="plans" onclick="showView('plans')">
           <span class="material-symbols-outlined text-[19px]">calendar_view_week</span> Weekly Strategy
         </a>
@@ -2058,6 +2061,142 @@
           </div>
 
         </div>
+      </div>
+    </div>
+
+    <!-- ====== VIEW: ACTIVITY & TIME TRACKER ====== -->
+    <div id="view-activity" class="view max-w-7xl mx-auto space-y-5 md:space-y-6 animate-fade-up">
+      <!-- Header Bar -->
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-2xl md:text-3xl font-extrabold text-main tracking-tight">Activity &amp; Sleep Log</h2>
+            <span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono">LIVE TELEMETRY</span>
+          </div>
+          <p class="text-xs md:text-sm text-muted mt-0.5 font-medium">Complete sleep logs, study sprints, deep coding sessions, and past activity records.</p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button onclick="openManualActivityModal()" class="cyber-pill text-primary border border-primary/30 rounded-xl px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 hover:bg-primary hover:text-white transition-all shadow-sm">
+            <span class="material-symbols-outlined text-[17px]">add_circle</span> + Log Past Activity
+          </button>
+          <button onclick="openPomodoroModal()" class="cyber-glow-btn text-white rounded-xl px-4 py-2 text-xs font-bold flex items-center gap-1.5 shadow-lg">
+            <span class="material-symbols-outlined text-[17px]">play_arrow</span> Open Live Timer
+          </button>
+        </div>
+      </div>
+
+      <!-- 4-Card Clear Categorized Breakdown -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between border">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20"><span class="material-symbols-outlined text-[18px]">schedule</span></span>
+            <span class="text-[9px] px-2 py-0.5 rounded-full cyber-pill text-muted font-bold">ALL-TIME</span>
+          </div>
+          <div>
+            <p class="text-[9px] font-bold uppercase tracking-wider text-muted font-mono">Total Tracked Time</p>
+            <p class="text-2xl font-black text-primary font-mono mt-0.5" id="act-sec-total-time">0h 0m</p>
+          </div>
+          <p class="text-[10px] text-muted font-semibold mt-2 pt-1.5 border-t" style="border-color:var(--border-subtle)">Across all sessions</p>
+        </div>
+
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between border border-emerald-500/20 bg-emerald-500/5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center border border-emerald-500/20"><span class="material-symbols-outlined text-[18px]">menu_book</span></span>
+            <span class="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold">FOCUS</span>
+          </div>
+          <div>
+            <p class="text-[9px] font-bold uppercase tracking-wider text-muted font-mono">Study &amp; Deep Work</p>
+            <p class="text-2xl font-black text-emerald-500 font-mono mt-0.5" id="act-sec-study-time">0h 0m</p>
+          </div>
+          <p class="text-[10px] text-muted font-semibold mt-2 pt-1.5 border-t" style="border-color:var(--border-subtle)">Classes, math, dev &amp; prep</p>
+        </div>
+
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between border border-indigo-500/20 bg-indigo-500/5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20"><span class="material-symbols-outlined text-[18px]">bedtime</span></span>
+            <span class="text-[9px] px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 font-bold">SLEEP</span>
+          </div>
+          <div>
+            <p class="text-[9px] font-bold uppercase tracking-wider text-muted font-mono">Sleep &amp; Rest Tracked</p>
+            <p class="text-2xl font-black text-indigo-400 font-mono mt-0.5" id="act-sec-sleep-time">0h 0m</p>
+          </div>
+          <p class="text-[10px] text-muted font-semibold mt-2 pt-1.5 border-t" style="border-color:var(--border-subtle)">Night sleep &amp; power naps</p>
+        </div>
+
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between border">
+          <div class="flex items-center justify-between mb-2">
+            <span class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center border border-amber-500/20"><span class="material-symbols-outlined text-[18px]">insights</span></span>
+            <span class="text-[9px] px-2 py-0.5 rounded-full cyber-pill text-muted font-bold">LOGS</span>
+          </div>
+          <div>
+            <p class="text-[9px] font-bold uppercase tracking-wider text-muted font-mono">Total Recorded Sessions</p>
+            <p class="text-2xl font-black text-main font-mono mt-0.5" id="act-sec-sessions-count">0</p>
+          </div>
+          <p class="text-[10px] text-muted font-semibold mt-2 pt-1.5 border-t flex items-center justify-between" style="border-color:var(--border-subtle)">
+            <span id="act-sec-cycles-info">0 Pomodoro Cycles</span>
+            <button onclick="openManualActivityModal()" class="text-primary font-bold hover:underline">+ Log</button>
+          </p>
+        </div>
+      </div>
+
+      <!-- Analytics Charts (Weekly Trend & Distribution) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-5">
+        <div class="lg:col-span-7 glass-card rounded-3xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-muted flex items-center gap-2 font-mono">
+              <span class="material-symbols-outlined text-[17px] text-primary">bar_chart</span> Weekly Activity Minutes (Mon – Sun)
+            </h3>
+          </div>
+          <div class="h-44">
+            <canvas id="act-sec-weekly-chart"></canvas>
+          </div>
+        </div>
+
+        <div class="lg:col-span-5 glass-card rounded-3xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-muted flex items-center gap-2 font-mono">
+              <span class="material-symbols-outlined text-[17px] text-primary">pie_chart</span> Time Distribution by Activity
+            </h3>
+          </div>
+          <div class="h-44 flex items-center justify-center">
+            <canvas id="act-sec-task-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interactive Activity Records & Management Table -->
+      <div class="glass-card rounded-3xl p-5 md:p-6 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-extrabold text-main flex items-center gap-2">
+              <span class="material-symbols-outlined text-[20px] text-primary">history</span> Activity History &amp; Log Management
+            </h3>
+            <p class="text-xs text-muted mt-0.5">Filter, search, modify, or delete past sleep and study records.</p>
+          </div>
+
+          <!-- Filters & Search -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="relative">
+              <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-muted text-[16px]">search</span>
+              <input id="act-search-input" oninput="filterActivitySectionLogs()" placeholder="Search activities or dates..." class="cyber-pill pl-8 pr-3 py-1.5 rounded-xl text-xs text-main placeholder-muted focus:outline-none focus:border-primary w-48 font-medium"/>
+            </div>
+            <button onclick="openManualActivityModal()" class="cyber-glow-btn px-3 py-1.5 rounded-xl text-white text-xs font-bold shadow flex items-center gap-1">
+              <span class="material-symbols-outlined text-[15px]">add</span> Add Session
+            </button>
+          </div>
+        </div>
+
+        <!-- Category Filter Chips -->
+        <div class="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none" id="act-category-chips">
+          <button onclick="setActivityCategoryFilter('ALL')" class="act-chip px-3 py-1 rounded-xl text-xs font-bold bg-primary text-white transition-all shadow-sm" data-cat="ALL">All Activities</button>
+          <button onclick="setActivityCategoryFilter('sleep')" class="act-chip px-3 py-1 rounded-xl text-xs font-bold cyber-pill text-indigo-400 hover:border-indigo-400 transition-all" data-cat="sleep">💤 Sleep / Rest</button>
+          <button onclick="setActivityCategoryFilter('study')" class="act-chip px-3 py-1 rounded-xl text-xs font-bold cyber-pill text-primary hover:border-primary transition-all" data-cat="study">📚 Study / Focus</button>
+          <button onclick="setActivityCategoryFilter('code')" class="act-chip px-3 py-1 rounded-xl text-xs font-bold cyber-pill text-emerald-400 hover:border-emerald-400 transition-all" data-cat="code">💻 Coding / Dev</button>
+          <button onclick="setActivityCategoryFilter('break')" class="act-chip px-3 py-1 rounded-xl text-xs font-bold cyber-pill text-amber-400 hover:border-amber-400 transition-all" data-cat="break">☕ Breaks</button>
+        </div>
+
+        <!-- Sessions List -->
+        <div id="act-sec-sessions-list" class="space-y-2"></div>
       </div>
     </div>
 
@@ -3208,6 +3347,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="{{ url_for('static', filename='app.js') }}?v=3.3.0"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=3.4.0"></script>
 </body>
 </html>

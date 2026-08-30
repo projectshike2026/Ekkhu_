@@ -666,6 +666,9 @@ function showView(name) {
     if (name === 'dashboard') {
         loadSummary();
     }
+    if (name === 'activity') {
+        loadActivitySection();
+    }
 }
 
 function openMobileMenu() {
@@ -3399,6 +3402,11 @@ async function finishAndSaveSession() {
     loadFocusStats();
 }
 
+let cachedActivityHistory = [];
+let currentActivityCategoryFilter = 'ALL';
+let actSecWeeklyChartInstance = null;
+let actSecTaskChartInstance = null;
+
 async function loadFocusStats() {
     try {
         const [statsRes, historyRes] = await Promise.all([
@@ -3407,27 +3415,46 @@ async function loadFocusStats() {
         ]);
         const stats = await statsRes.json();
         const history = await historyRes.json();
+        cachedActivityHistory = Array.isArray(history) ? history : [];
 
-        // 1. Update 4-Card Clear Categorized Breakdown
+        // 1. Update 4-Card Clear Categorized Breakdown (Modal + Dedicated View)
         const totalMins = (stats && stats.totals && stats.totals.total_minutes) || 0;
         const studyMins = (stats && stats.totals && stats.totals.study_minutes) || 0;
         const sleepMins = (stats && stats.totals && stats.totals.sleep_minutes) || 0;
         const totalSessions = (stats && stats.totals && stats.totals.total_sessions) || 0;
         const totalCycles = (stats && stats.totals && stats.totals.total_cycles) || 0;
 
+        const durFormatted = formatDuration(totalMins);
+        const studyFormatted = formatDuration(studyMins);
+        const sleepFormatted = formatDuration(sleepMins);
+
+        // Modal Elements
         const mEl = document.getElementById('focus-total-minutes');
         const stEl = document.getElementById('focus-study-minutes');
         const slEl = document.getElementById('focus-sleep-minutes');
         const sEl = document.getElementById('focus-total-sessions');
         const slbEl = document.getElementById('focus-total-sessions-label');
 
-        if (mEl) mEl.textContent = formatDuration(totalMins);
-        if (stEl) stEl.textContent = formatDuration(studyMins);
-        if (slEl) slEl.textContent = formatDuration(sleepMins);
+        if (mEl) mEl.textContent = durFormatted;
+        if (stEl) stEl.textContent = studyFormatted;
+        if (slEl) slEl.textContent = sleepFormatted;
         if (sEl) sEl.textContent = totalSessions;
         if (slbEl) slbEl.textContent = totalCycles > 0 ? `Sessions (${totalCycles} Cyc)` : `Total Sessions`;
 
-        // 2. Render Weekly Chart
+        // Dedicated View Elements
+        const actTotal = document.getElementById('act-sec-total-time');
+        const actStudy = document.getElementById('act-sec-study-time');
+        const actSleep = document.getElementById('act-sec-sleep-time');
+        const actSess = document.getElementById('act-sec-sessions-count');
+        const actCyc = document.getElementById('act-sec-cycles-info');
+
+        if (actTotal) actTotal.textContent = durFormatted;
+        if (actStudy) actStudy.textContent = studyFormatted;
+        if (actSleep) actSleep.textContent = sleepFormatted;
+        if (actSess) actSess.textContent = totalSessions;
+        if (actCyc) actCyc.textContent = totalCycles > 0 ? `${totalCycles} Pomodoro Cycles` : 'No Pomodoro Cycles';
+
+        // 2. Render Modal Weekly Chart
         if (window.Chart && document.getElementById('focus-weekly-chart') && stats && stats.weekly) {
             const ctx = document.getElementById('focus-weekly-chart').getContext('2d');
             const labels = stats.weekly.map(w => {
@@ -3462,39 +3489,185 @@ async function loadFocusStats() {
             });
         }
 
-        // 3. Render Top Tasks Breakdown (Doughnut chart with clear labels)
-        if (window.Chart && document.getElementById('focus-task-chart') && stats && stats.tasks) {
-            const ctx = document.getElementById('focus-task-chart').getContext('2d');
-            const labels = stats.tasks.map(t => `${t.task_label || 'Activity'} (${formatDuration(t.mins || 0)})`);
-            const data = stats.tasks.map(t => t.mins || 0);
+        // 3. Render Dedicated View Weekly Chart
+        if (window.Chart && document.getElementById('act-sec-weekly-chart') && stats && stats.weekly) {
+            const ctx = document.getElementById('act-sec-weekly-chart').getContext('2d');
+            const labels = stats.weekly.map(w => {
+                const d = new Date(w.date + 'T00:00:00');
+                return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+            });
+            const data = stats.weekly.map(w => w.mins || 0);
 
-            if (focusTaskChartInstance) focusTaskChartInstance.destroy();
-            focusTaskChartInstance = new Chart(ctx, {
-                type: 'doughnut',
+            if (actSecWeeklyChartInstance) actSecWeeklyChartInstance.destroy();
+            actSecWeeklyChartInstance = new Chart(ctx, {
+                type: 'bar',
                 data: {
-                    labels: labels.length ? labels : ['No Activities Yet'],
+                    labels: labels.length ? labels : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
                     datasets: [{
-                        data: data.length ? data : [1],
-                        backgroundColor: [
-                            '#af101a', '#e11d48', '#f59e0b', '#10b981', '#06b6d4', '#6366f1', '#8b5cf6'
-                        ],
-                        borderWidth: 0
+                        label: 'Activity Minutes',
+                        data: data.length ? data : [0, 0, 0, 0, 0, 0, 0],
+                        backgroundColor: '#af101a',
+                        borderRadius: 8
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } }
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(128,128,128,0.1)' } },
+                        x: { grid: { display: false } }
+                    }
                 }
             });
         }
 
-        // 4. Render Recent Session List with Edit and Delete
-        renderFocusRecentList(Array.isArray(history) ? history : []);
+        // 4. Render Task Breakdown Doughnuts
+        if (window.Chart && stats && stats.tasks) {
+            const labels = stats.tasks.map(t => `${t.task_label || 'Activity'} (${formatDuration(t.mins || 0)})`);
+            const data = stats.tasks.map(t => t.mins || 0);
+            const bgColors = ['#af101a', '#e11d48', '#f59e0b', '#10b981', '#06b6d4', '#6366f1', '#8b5cf6'];
+
+            // Modal Doughnut
+            if (document.getElementById('focus-task-chart')) {
+                const ctx = document.getElementById('focus-task-chart').getContext('2d');
+                if (focusTaskChartInstance) focusTaskChartInstance.destroy();
+                focusTaskChartInstance = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels.length ? labels : ['No Activities Yet'],
+                        datasets: [{ data: data.length ? data : [1], backgroundColor: bgColors, borderWidth: 0 }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } }
+                    }
+                });
+            }
+
+            // Dedicated View Doughnut
+            if (document.getElementById('act-sec-task-chart')) {
+                const ctx2 = document.getElementById('act-sec-task-chart').getContext('2d');
+                if (actSecTaskChartInstance) actSecTaskChartInstance.destroy();
+                actSecTaskChartInstance = new Chart(ctx2, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels.length ? labels : ['No Activities Yet'],
+                        datasets: [{ data: data.length ? data : [1], backgroundColor: bgColors, borderWidth: 0 }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 } } } }
+                    }
+                });
+            }
+        }
+
+        // 5. Render Recent Session List (Modal) & Filterable List (Dedicated View)
+        renderFocusRecentList(cachedActivityHistory);
+        renderActivitySectionList(cachedActivityHistory);
 
     } catch (e) {
         console.warn('[Focus Stats] Load failed:', e);
     }
+}
+
+function loadActivitySection() {
+    loadFocusStats();
+}
+
+function setActivityCategoryFilter(cat) {
+    playHaptic('tap');
+    currentActivityCategoryFilter = cat;
+    
+    // Update chip styling
+    document.querySelectorAll('.act-chip').forEach(btn => {
+        const isActive = btn.dataset.cat === cat;
+        btn.classList.toggle('bg-primary', isActive);
+        btn.classList.toggle('text-white', isActive);
+        btn.classList.toggle('shadow-sm', isActive);
+    });
+
+    filterActivitySectionLogs();
+}
+
+function filterActivitySectionLogs() {
+    const q = ((document.getElementById('act-search-input') || {}).value || '').toLowerCase().trim();
+    const cat = currentActivityCategoryFilter;
+
+    let filtered = cachedActivityHistory.filter(s => {
+        const label = (s.task_label || '').toLowerCase();
+        const d = (s.date || '').toLowerCase();
+        const matchQuery = !q || label.includes(q) || d.includes(q);
+        if (!matchQuery) return false;
+
+        if (cat === 'ALL') return true;
+        if (cat === 'sleep') return label.includes('sleep') || label.includes('ঘুম') || label.includes('rest') || label.includes('nap');
+        if (cat === 'study') return label.includes('study') || label.includes('read') || label.includes('math') || label.includes('cse') || label.includes('exam') || label.includes('পড়া');
+        if (cat === 'code') return label.includes('code') || label.includes('dev') || label.includes('python') || label.includes('js') || label.includes('coding');
+        if (cat === 'break') return label.includes('break') || label.includes('ব্রেক') || label.includes('tea') || label.includes('coffee') || label.includes('পানি');
+        return true;
+    });
+
+    renderActivitySectionList(filtered);
+}
+
+function renderActivitySectionList(sessions) {
+    const container = document.getElementById('act-sec-sessions-list');
+    if (!container) return;
+
+    if (!sessions || sessions.length === 0) {
+        container.innerHTML = `
+            <div class="p-8 rounded-2xl cyber-pill text-center space-y-2 border">
+                <span class="material-symbols-outlined text-3xl text-muted">history_toggle_off</span>
+                <p class="text-xs font-bold text-main">No Activity Records Found</p>
+                <p class="text-[11px] text-muted">Click "+ Log Past Activity" or launch a live timer to record your sleep and study sessions.</p>
+                <button onclick="openManualActivityModal()" class="mt-2 cyber-glow-btn px-4 py-1.5 rounded-xl text-white text-xs font-bold shadow">
+                    + Log Past Activity
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = sessions.map(s => {
+        const mins = s.total_minutes || 0;
+        const durStr = formatDuration(mins);
+        const cat = getSessionCategoryBadge(s.task_label);
+        const taskLabel = s.task_label || 'General / Uncategorized';
+
+        return `
+            <div class="glass-card rounded-2xl p-3.5 flex items-center justify-between gap-3 group hover:border-primary transition-all border">
+                <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <div class="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${cat.cls}">
+                        <span class="material-symbols-outlined text-[20px]">${cat.icon}</span>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span class="text-[10px] font-bold px-2.5 py-0.5 rounded-lg border font-mono ${cat.cls}">
+                                ${cat.label}
+                            </span>
+                            <span class="text-xs font-mono font-black text-primary">${durStr} (${mins}m)</span>
+                            <span class="text-[10px] text-muted font-mono">${s.date || 'Today'}</span>
+                            ${s.cycles_done > 0 ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-bold font-mono">${s.cycles_done} cyc</span>` : ''}
+                        </div>
+                        <p class="text-xs font-bold text-main truncate">${escapeHtml(taskLabel)}</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <button onclick="openEditFocusModal(${s.id}, '${escapeHtml(taskLabel)}', ${mins}, '${s.date || ''}')" class="cyber-pill px-3 py-1.5 rounded-xl text-xs font-bold text-main hover:text-primary hover:border-primary transition-all flex items-center gap-1">
+                        <span class="material-symbols-outlined text-[15px]">edit</span>
+                        <span class="hidden sm:inline">Edit</span>
+                    </button>
+                    <button onclick="deleteFocusSession(${s.id})" class="cyber-pill p-1.5 rounded-xl text-muted hover:text-rose-500 hover:border-rose-500 transition-all" title="Delete record">
+                        <span class="material-symbols-outlined text-[17px]">delete</span>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 function getSessionCategoryBadge(taskName) {
@@ -5243,6 +5416,7 @@ const COMMANDS = [
             { icon: 'school', label: 'CGPA Predictor', hint: 'Calculate GPA and targets', run: () => showView('cgpa') },
             { icon: 'payments', label: 'Budget Tracker', hint: 'Log expenses and allowance', run: () => showView('budget') },
             { icon: 'calendar_view_week', label: 'Weekly Plans', hint: 'Review weekly strategy', run: () => showView('plans') },
+            { icon: 'schedule', label: 'Activity & Sleep Log', hint: 'View, filter & modify sleep, study and past records', run: () => showView('activity') },
             { icon: 'task_alt', label: 'Daily Priorities', hint: 'Manage action items', run: () => showView('tasks') },
             { icon: 'smart_toy', label: 'Ekkhu AI Chat', hint: 'Chat with your AI companion', run: () => showView('chat') },
             { icon: 'settings', label: 'Settings', hint: 'System information and profiles', run: () => showView('settings') },
