@@ -29,14 +29,20 @@ let recordingStartTime = 0;
 
 // ─── Pomodoro Focus Engine State ────────────────────────────────
 let pomoTimer = null;
-let pomoMode = 'focus';         // 'focus' (25m) | 'short' (5m) | 'long' (15m)
+let pomoMode = 'focus';         // 'focus' (25m) | 'custom' | 'stopwatch' | 'short' (5m) | 'long' (15m)
 let pomoSecondsLeft = 25 * 60;
+let pomoStopwatchSeconds = 0;   // Count-up seconds for stopwatch mode
+let pomoCustomMinutes = 30;     // Custom timer minutes
 let pomoIsRunning = false;
 // Multi-cycle extras
 let pomoCycles = 1;             // 1 | 2 | 3
 let pomoCyclesDone = 0;         // cycles completed this session
 let pomoTaskLabel = '';         // what user is working on
 let pomoSessionStart = null;    // Date when session started
+
+// Soft Repeating Alarm State
+let softAlarmInterval = null;
+let isSoftAlarmActive = false;
 
 // Web Audio Ambient Synthesizer
 let audioCtx = null;
@@ -2412,16 +2418,83 @@ function closePomodoroModal() {
     }
 }
 
+// ════════════════════════════════════════════════════════════════
+//  SOFT REPEATING MELODIC ALARM SYNTHESIZER (Web Audio API)
+// ════════════════════════════════════════════════════════════════
+function startSoftAlarm() {
+    stopSoftAlarm();
+    isSoftAlarmActive = true;
+
+    const banner = document.getElementById('pomo-alarm-banner');
+    if (banner) banner.classList.remove('hidden');
+
+    const playHarmonicChime = () => {
+        if (!isSoftAlarmActive) return;
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            // Gentle acoustic bell notes: C5 (523.25Hz), E5 (659.25Hz), G5 (783.99Hz), B5 (987.77Hz)
+            const notes = [523.25, 659.25, 783.99, 987.77];
+            notes.forEach((freq, index) => {
+                const startTime = ctx.currentTime + (index * 0.16);
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, startTime);
+
+                // Very smooth acoustic gain envelope
+                gain.gain.setValueAtTime(0.0001, startTime);
+                gain.gain.exponentialRampToValueAtTime(0.18, startTime + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 1.2);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(startTime);
+                osc.stop(startTime + 1.2);
+            });
+        } catch (e) {
+            console.debug('Soft alarm chime error:', e);
+        }
+    };
+
+    playHarmonicChime();
+    softAlarmInterval = setInterval(playHarmonicChime, 2500);
+}
+
+function stopSoftAlarm() {
+    playHaptic('tap');
+    isSoftAlarmActive = false;
+    if (softAlarmInterval) {
+        clearInterval(softAlarmInterval);
+        softAlarmInterval = null;
+    }
+    const banner = document.getElementById('pomo-alarm-banner');
+    if (banner) banner.classList.add('hidden');
+}
+
 function setPomodoroMode(mode) {
     playHaptic('tap');
+    stopSoftAlarm();
     pomoMode = mode;
     pomoIsRunning = false;
     clearInterval(pomoTimer);
 
     const breakGuide = document.getElementById('pomo-break-guide');
+    const customSel = document.getElementById('pomo-custom-selector');
+    const cycleCont = document.getElementById('pomo-cycle-container');
+
+    if (customSel) customSel.classList.toggle('hidden', mode !== 'custom');
+    if (cycleCont) cycleCont.classList.toggle('hidden', mode !== 'focus');
 
     if (mode === 'focus') {
         pomoSecondsLeft = 25 * 60;
+        if (breakGuide) breakGuide.classList.add('hidden');
+    } else if (mode === 'custom') {
+        pomoSecondsLeft = pomoCustomMinutes * 60;
+        if (breakGuide) breakGuide.classList.add('hidden');
+    } else if (mode === 'stopwatch') {
+        pomoStopwatchSeconds = 0;
         if (breakGuide) breakGuide.classList.add('hidden');
     } else if (mode === 'short') {
         pomoSecondsLeft = 5 * 60;
@@ -2435,16 +2508,43 @@ function setPomodoroMode(mode) {
 
     pomoCyclesDone = 0;
 
-    ['pomo-tab-focus', 'pomo-tab-short', 'pomo-tab-long'].forEach(id => {
+    ['pomo-tab-focus', 'pomo-tab-custom', 'pomo-tab-stopwatch', 'pomo-tab-short', 'pomo-tab-long'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
             const isAct = id === `pomo-tab-${mode}`;
-            el.className = isAct ? 'flex-1 py-1.5 rounded-lg text-xs font-bold bg-primary text-white transition-all shadow-sm' : 'flex-1 py-1.5 rounded-lg text-xs font-bold text-muted transition-all';
+            el.className = isAct 
+                ? 'flex-1 min-w-[70px] py-1.5 rounded-lg text-xs font-bold bg-primary text-white transition-all shadow-sm' 
+                : 'flex-1 min-w-[70px] py-1.5 rounded-lg text-xs font-bold text-muted transition-all';
         }
     });
 
     const badge = document.getElementById('pomo-mode-badge');
-    if (badge) badge.textContent = mode === 'focus' ? `${pomoCycles}× Focus` : mode === 'short' ? '5m Break' : '15m Deep Rest';
+    if (badge) {
+        badge.textContent = mode === 'focus' ? `${pomoCycles}× Focus` 
+            : mode === 'custom' ? `${pomoCustomMinutes}m Custom` 
+            : mode === 'stopwatch' ? `⏱️ Stopwatch` 
+            : mode === 'short' ? '5m Break' : '15m Deep Rest';
+    }
+
+    updatePomodoroDisplay();
+}
+
+function setCustomMinutes(mins) {
+    const val = parseInt(mins, 10);
+    if (!val || isNaN(val) || val <= 0) return;
+    playHaptic('tap');
+    pomoCustomMinutes = Math.min(Math.max(val, 1), 360);
+    pomoSecondsLeft = pomoCustomMinutes * 60;
+
+    const lbl = document.getElementById('pomo-custom-duration-label');
+    if (lbl) lbl.textContent = `${pomoCustomMinutes} Minutes`;
+    const inp = document.getElementById('pomo-custom-min-input');
+    if (inp) inp.value = pomoCustomMinutes;
+
+    const badge = document.getElementById('pomo-mode-badge');
+    if (badge && pomoMode === 'custom') badge.textContent = `${pomoCustomMinutes}m Custom`;
+    const badgeCard = document.getElementById('pomo-card-duration');
+    if (badgeCard && pomoMode === 'custom') badgeCard.textContent = `${pomoCustomMinutes}m custom`;
 
     updatePomodoroDisplay();
 }
@@ -2459,17 +2559,14 @@ function setPomoCycles(n) {
 
     // Update cycle selector buttons
     [1,2,3].forEach(i => {
-        ['pomo-cycle-', 'pomo-cycle-'].forEach(prefix => {
-            const el = document.getElementById(`${prefix}${i}`);
-            if (el) {
-                el.className = i === n
-                    ? 'flex-1 py-1.5 rounded-lg text-xs font-bold bg-primary text-white transition-all shadow-sm'
-                    : 'flex-1 py-1.5 rounded-lg text-xs font-bold text-muted transition-all';
-            }
-        });
+        const el = document.getElementById(`pomo-cycle-${i}`);
+        if (el) {
+            el.className = i === n
+                ? 'flex-1 py-1.5 rounded-lg text-xs font-bold bg-primary text-white transition-all shadow-sm'
+                : 'flex-1 py-1.5 rounded-lg text-xs font-bold text-muted transition-all';
+        }
     });
 
-    // Update badge & summaries
     const badge = document.getElementById('pomo-mode-badge');
     if (badge) badge.textContent = `${n}× Focus`;
     const badgeCard = document.getElementById('pomo-card-duration');
@@ -2483,6 +2580,7 @@ function setPomoCycles(n) {
 
 function togglePomodoroTimer() {
     playHaptic('pop');
+    stopSoftAlarm();
     if (pomoIsRunning) {
         pausePomodoroTimer();
     } else {
@@ -2491,6 +2589,7 @@ function togglePomodoroTimer() {
 }
 
 function startPomodoroTimer() {
+    stopSoftAlarm();
     // Capture task label from input
     const modalInput = document.getElementById('pomo-task-label');
     const cardInput = document.getElementById('pomo-task-label-card');
@@ -2502,7 +2601,7 @@ function startPomodoroTimer() {
         pomoTaskLabel = cardInput.value.trim();
         if (modalInput) modalInput.value = pomoTaskLabel;
     } else {
-        pomoTaskLabel = 'Academic Deep Work';
+        pomoTaskLabel = pomoMode === 'stopwatch' ? 'Open-ended Coding/Study' : 'Academic Deep Work';
     }
 
     if (!pomoSessionStart) pomoSessionStart = new Date();
@@ -2511,40 +2610,58 @@ function startPomodoroTimer() {
     clearInterval(pomoTimer);
 
     // Trigger Ekkhu PA Kickoff Briefing
-    if (pomoCyclesDone === 0 && pomoSecondsLeft === 25 * 60) {
+    if (pomoMode === 'focus' && pomoCyclesDone === 0 && pomoSecondsLeft === 25 * 60) {
         requestPABriefing('start');
     }
 
     pomoTimer = setInterval(() => {
-        if (pomoSecondsLeft > 0) {
-            pomoSecondsLeft--;
+        if (pomoMode === 'stopwatch') {
+            // Count up in stopwatch mode
+            pomoStopwatchSeconds++;
             updatePomodoroDisplay();
         } else {
-            // One cycle done
-            pomoCyclesDone++;
-            clearInterval(pomoTimer);
-            pomoIsRunning = false;
-            playCompletionChime();
-            updateCycleProgressDots();
-
-            if (pomoCyclesDone < pomoCycles) {
-                // Auto-advance to next cycle & prompt break
-                pomoSecondsLeft = 25 * 60;
-                toast(`✅ Cycle ${pomoCyclesDone} done! Starting cycle ${pomoCyclesDone + 1}…`, 'success');
-                requestPABriefing('cycle_done');
-                setTimeout(() => startPomodoroTimer(), 2500);
-            } else {
-                // All cycles complete — log session & PA celebration
-                const totalMins = pomoCyclesDone * 25;
-                toast(`🎉 All ${pomoCycles} cycle${pomoCycles>1?'s':''} complete! ${totalMins} minutes of deep focus!`, 'success');
-                logFocusSession();
-                requestPABriefing('session_complete');
-                pomoSessionStart = null;
-                pomoCyclesDone = 0;
-                pomoSecondsLeft = 25 * 60;
+            // Count down in focus / custom / break modes
+            if (pomoSecondsLeft > 0) {
+                pomoSecondsLeft--;
                 updatePomodoroDisplay();
+            } else {
+                clearInterval(pomoTimer);
+                pomoIsRunning = false;
+                startSoftAlarm();
                 updateCycleProgressDots();
-                setTimeout(() => loadFocusStats(), 800);
+
+                if (pomoMode === 'focus') {
+                    pomoCyclesDone++;
+                    if (pomoCyclesDone < pomoCycles) {
+                        pomoSecondsLeft = 25 * 60;
+                        toast(`✅ Cycle ${pomoCyclesDone} done! Starting cycle ${pomoCyclesDone + 1}…`, 'success');
+                        requestPABriefing('cycle_done');
+                        setTimeout(() => startPomodoroTimer(), 3000);
+                    } else {
+                        const totalMins = pomoCyclesDone * 25;
+                        toast(`🎉 All ${pomoCycles} cycle${pomoCycles>1?'s':''} complete! ${totalMins} minutes of deep focus!`, 'success');
+                        logFocusSession();
+                        requestPABriefing('session_complete');
+                        pomoSessionStart = null;
+                        pomoCyclesDone = 0;
+                        pomoSecondsLeft = 25 * 60;
+                        updatePomodoroDisplay();
+                        updateCycleProgressDots();
+                        setTimeout(() => loadFocusStats(), 800);
+                    }
+                } else if (pomoMode === 'custom') {
+                    toast(`🎯 Custom timer finished! ${pomoCustomMinutes} minutes logged.`, 'success');
+                    logFocusSession(pomoCustomMinutes);
+                    requestPABriefing('session_complete');
+                    pomoSessionStart = null;
+                    pomoSecondsLeft = pomoCustomMinutes * 60;
+                    updatePomodoroDisplay();
+                    setTimeout(() => loadFocusStats(), 800);
+                } else {
+                    toast(`⏰ Break time finished! Ready to focus?`, 'info');
+                    requestPABriefing('start');
+                    updatePomodoroDisplay();
+                }
             }
         }
     }, 1000);
@@ -2556,14 +2673,22 @@ function startPomodoroTimer() {
 function pausePomodoroTimer() {
     pomoIsRunning = false;
     clearInterval(pomoTimer);
+    stopSoftAlarm();
     updatePomodoroDisplay();
 }
 
 function resetPomodoroTimer() {
     playHaptic('tap');
+    stopSoftAlarm();
     pomoIsRunning = false;
     clearInterval(pomoTimer);
-    pomoSecondsLeft = 25 * 60;
+    if (pomoMode === 'focus') {
+        pomoSecondsLeft = 25 * 60;
+    } else if (pomoMode === 'custom') {
+        pomoSecondsLeft = pomoCustomMinutes * 60;
+    } else if (pomoMode === 'stopwatch') {
+        pomoStopwatchSeconds = 0;
+    }
     pomoCyclesDone = 0;
     pomoSessionStart = null;
     const breakGuide = document.getElementById('pomo-break-guide');
@@ -2593,14 +2718,32 @@ function updateCycleProgressDots() {
 }
 
 function updatePomodoroDisplay() {
-    const mins = Math.floor(pomoSecondsLeft / 60);
-    const secs = pomoSecondsLeft % 60;
-    const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    let timeStr = '25:00';
+    if (pomoMode === 'stopwatch') {
+        const sMins = Math.floor(pomoStopwatchSeconds / 60);
+        const sSecs = pomoStopwatchSeconds % 60;
+        timeStr = `${String(sMins).padStart(2, '0')}:${String(sSecs).padStart(2, '0')}`;
+    } else {
+        const mins = Math.floor(pomoSecondsLeft / 60);
+        const secs = pomoSecondsLeft % 60;
+        timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
 
     ['pomo-display-time', 'pomo-modal-time', 'nav-pomo-time', 'island-pomo-timer'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = timeStr;
     });
+
+    const quoteEl = document.getElementById('pomo-modal-quote');
+    if (quoteEl) {
+        if (pomoMode === 'stopwatch') {
+            quoteEl.textContent = pomoIsRunning ? '⏱️ Stopwatch Active • Counting deep work time' : 'Ready to count open-ended sprint';
+        } else if (pomoMode === 'custom') {
+            quoteEl.textContent = `${pomoCustomMinutes}m Custom Sprint • Full dedication`;
+        } else {
+            quoteEl.textContent = 'Dedicate full attention to one single goal.';
+        }
+    }
 
     const pomoDot = document.getElementById('pomo-dot');
     if (pomoDot) {
@@ -2608,28 +2751,104 @@ function updatePomodoroDisplay() {
     }
 
     const stateEl = document.getElementById('nav-pomo-state');
-    if (stateEl) stateEl.textContent = pomoIsRunning ? 'Active' : 'Focus';
+    if (stateEl) stateEl.textContent = pomoIsRunning ? (pomoMode === 'stopwatch' ? 'Counting' : 'Active') : 'Focus';
 
     const islandPomoStatus = document.getElementById('island-pomo-status');
-    if (islandPomoStatus) islandPomoStatus.textContent = pomoIsRunning ? 'Focusing...' : 'Focus Ready';
+    if (islandPomoStatus) islandPomoStatus.textContent = pomoIsRunning ? (pomoMode === 'stopwatch' ? 'Stopwatch On' : 'Focusing...') : 'Focus Ready';
 
     const modalIcon = document.getElementById('pomo-modal-icon');
     const modalText = document.getElementById('pomo-modal-text');
     const mainIcon = document.getElementById('pomo-btn-icon');
 
     if (modalIcon) modalIcon.textContent = pomoIsRunning ? 'pause' : 'play_arrow';
-    if (modalText) modalText.textContent = pomoIsRunning ? 'Pause Session' : (pomoCyclesDone > 0 ? `Resume Cycle ${pomoCyclesDone+1}` : 'Start Focus');
+    if (modalText) modalText.textContent = pomoIsRunning ? 'Pause Session' : (pomoMode === 'stopwatch' ? (pomoStopwatchSeconds > 0 ? 'Resume Stopwatch' : 'Start Stopwatch') : (pomoCyclesDone > 0 ? `Resume Cycle ${pomoCyclesDone+1}` : 'Start Focus'));
     if (mainIcon) mainIcon.textContent = pomoIsRunning ? 'pause' : 'play_arrow';
 
     // Update cycle indicator in card
     const cycleInfo = document.getElementById('pomo-cycle-info');
     if (cycleInfo) {
-        if (pomoIsRunning || pomoCyclesDone > 0) {
+        if (pomoMode === 'stopwatch') {
+            cycleInfo.textContent = pomoIsRunning ? '⏱️ Stopwatch running' : 'Stopwatch mode';
+        } else if (pomoMode === 'custom') {
+            cycleInfo.textContent = `${pomoCustomMinutes}m Custom Timer`;
+        } else if (pomoIsRunning || pomoCyclesDone > 0) {
             cycleInfo.textContent = `Cycle ${pomoCyclesDone + (pomoIsRunning ? 1 : 0)} of ${pomoCycles}`;
         } else {
             cycleInfo.textContent = `${pomoCycles} × 25min = ${pomoCycles * 25}min`;
         }
     }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  EKKHU JARVIS AI CLIENT ACTION EXECUTOR
+// ════════════════════════════════════════════════════════════════
+function executeClientActions(actions) {
+    if (!Array.isArray(actions) || actions.length === 0) return;
+    
+    actions.forEach(action => {
+        if (!action || typeof action !== 'object') return;
+        const atype = action.type;
+
+        if (atype === 'start_timer') {
+            const mins = parseInt(action.minutes, 10) || 25;
+            const cycles = parseInt(action.cycles, 10) || 1;
+            const task = action.task || action.title || 'Focus Sprint';
+            const mode = action.mode || (mins === 25 ? 'focus' : 'custom');
+
+            pomoTaskLabel = task;
+            const mInp = document.getElementById('pomo-task-label');
+            const cInp = document.getElementById('pomo-task-label-card');
+            if (mInp) mInp.value = task;
+            if (cInp) cInp.value = task;
+
+            if (mode === 'custom' || (mins !== 25 && cycles === 1)) {
+                setPomodoroMode('custom');
+                setCustomMinutes(mins);
+            } else {
+                setPomodoroMode('focus');
+                setPomoCycles(cycles);
+            }
+
+            openPomodoroModal();
+            startPomodoroTimer();
+            toast(`🎯 Ekkhu started ${mins}m timer for "${task}"!`, 'success');
+            playHaptic('pop');
+
+        } else if (atype === 'start_stopwatch') {
+            const task = action.task || action.title || 'Coding Sprint';
+            pomoTaskLabel = task;
+            const mInp = document.getElementById('pomo-task-label');
+            const cInp = document.getElementById('pomo-task-label-card');
+            if (mInp) mInp.value = task;
+            if (cInp) cInp.value = task;
+
+            setPomodoroMode('stopwatch');
+            openPomodoroModal();
+            startPomodoroTimer();
+            toast(`⏱️ Ekkhu started stopwatch for "${task}"!`, 'success');
+            playHaptic('pop');
+
+        } else if (atype === 'stop_timer') {
+            const task = action.task || pomoTaskLabel || 'Sprint';
+            stopSoftAlarm();
+            if (pomoIsRunning) {
+                let loggedMins = 0;
+                if (pomoMode === 'stopwatch') {
+                    loggedMins = Math.max(1, Math.round(pomoStopwatchSeconds / 60));
+                } else if (pomoMode === 'custom') {
+                    loggedMins = pomoCustomMinutes;
+                } else {
+                    loggedMins = (pomoCyclesDone + 1) * 25;
+                }
+                logFocusSession(loggedMins);
+                pausePomodoroTimer();
+                toast(`🏁 Ekkhu stopped timer. ${loggedMins} minutes recorded for "${task}"!`, 'success');
+            } else {
+                toast(`Timer is not running`, 'info');
+            }
+            playHaptic('pop');
+        }
+    });
 }
 
 // ─── Ekkhu PA Assistant Focus Engine Handlers ────────────────────
@@ -3338,12 +3557,14 @@ function flipFlashcard(cardEl) {
     cardEl.classList.toggle('border-emerald-500', isShowingQ);
 }
 
-async function logFocusSession() {
+async function logFocusSession(customMins = null) {
     try {
+        const totalMinutes = customMins ? parseInt(customMins, 10) : (pomoCyclesDone * 25);
         await api('/api/focus/log', 'POST', {
-            task_label: pomoTaskLabel,
-            cycles_planned: pomoCycles,
-            cycles_done: pomoCyclesDone,
+            task_label: pomoTaskLabel || 'Academic Focus',
+            cycles_planned: pomoCycles || 1,
+            cycles_done: pomoCyclesDone || 1,
+            total_minutes: totalMinutes,
             started_at: pomoSessionStart ? pomoSessionStart.toISOString() : new Date().toISOString()
         });
     } catch(e) {
@@ -3970,6 +4191,10 @@ async function sendChat() {
             return;
         }
 
+        if (data.actions && Array.isArray(data.actions)) {
+            executeClientActions(data.actions);
+        }
+
         await renderStaggeredReply(data.reply, data.emotion, desktop, data.tts_text);
     } catch (e) {
         hideChatTyping();
@@ -4202,6 +4427,10 @@ async function sendVoiceChat(msg) {
         }
 
         setVoiceUIState('speaking');
+
+        if (data.actions && Array.isArray(data.actions)) {
+            executeClientActions(data.actions);
+        }
 
         const msgs = Array.isArray(data.reply) ? data.reply : [data.reply];
         const fullText = msgs.filter(m => m && String(m).trim()).join(' ');

@@ -2241,17 +2241,57 @@
       <button onclick="closePomodoroModal()" class="text-muted hover:text-main"><span class="material-symbols-outlined text-[20px]">close</span></button>
     </div>
 
-    <!-- Mode Switcher -->
-    <div class="px-5 pb-3">
-      <div class="flex cyber-pill rounded-xl p-1">
-        <button onclick="setPomodoroMode('focus')" id="pomo-tab-focus" class="flex-1 py-1.5 rounded-lg text-xs font-bold bg-primary text-white transition-all shadow-sm">Focus (25m)</button>
-        <button onclick="setPomodoroMode('short')" id="pomo-tab-short" class="flex-1 py-1.5 rounded-lg text-xs font-bold text-muted transition-all">Quick Break (5m)</button>
-        <button onclick="setPomodoroMode('long')" id="pomo-tab-long" class="flex-1 py-1.5 rounded-lg text-xs font-bold text-muted transition-all">Deep Rest (15m)</button>
+    <!-- 🔔 Active Soft Alarm Banner (Appears when timer completes) -->
+    <div id="pomo-alarm-banner" class="hidden px-5 pb-3">
+      <div class="p-3 rounded-2xl bg-rose-500/15 border border-rose-500/40 flex items-center justify-between shadow-lg animate-pulse">
+        <div class="flex items-center gap-2.5">
+          <span class="material-symbols-outlined text-rose-500 text-[24px]">alarm</span>
+          <div>
+            <p class="text-xs font-bold text-main">Time's Up! Focus Complete 🎯</p>
+            <p class="text-[10px] text-muted">Soft alarm playing... Tap to stop.</p>
+          </div>
+        </div>
+        <button onclick="stopSoftAlarm()" class="cyber-glow-btn px-3 py-1.5 rounded-xl text-white text-xs font-bold flex items-center gap-1">
+          <span class="material-symbols-outlined text-[15px]">alarm_off</span> Stop Alarm
+        </button>
       </div>
     </div>
 
-    <!-- Cycle Selector -->
+    <!-- Mode Switcher -->
     <div class="px-5 pb-3">
+      <div class="flex flex-wrap cyber-pill rounded-xl p-1 gap-1">
+        <button onclick="setPomodoroMode('focus')" id="pomo-tab-focus" class="flex-1 min-w-[70px] py-1.5 rounded-lg text-xs font-bold bg-primary text-white transition-all shadow-sm">Focus (25m)</button>
+        <button onclick="setPomodoroMode('custom')" id="pomo-tab-custom" class="flex-1 min-w-[70px] py-1.5 rounded-lg text-xs font-bold text-muted transition-all">Custom</button>
+        <button onclick="setPomodoroMode('stopwatch')" id="pomo-tab-stopwatch" class="flex-1 min-w-[70px] py-1.5 rounded-lg text-xs font-bold text-muted transition-all">Stopwatch ⏱️</button>
+        <button onclick="setPomodoroMode('short')" id="pomo-tab-short" class="flex-1 min-w-[70px] py-1.5 rounded-lg text-xs font-bold text-muted transition-all">Break (5m)</button>
+        <button onclick="setPomodoroMode('long')" id="pomo-tab-long" class="flex-1 min-w-[70px] py-1.5 rounded-lg text-xs font-bold text-muted transition-all">Rest (15m)</button>
+      </div>
+    </div>
+
+    <!-- Custom Duration Control (Visible when in custom mode) -->
+    <div id="pomo-custom-selector" class="hidden px-5 pb-3 animate-fade-in">
+      <div class="p-3 rounded-2xl cyber-pill space-y-2 border">
+        <div class="flex items-center justify-between">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-muted font-mono">Custom Duration</p>
+          <span id="pomo-custom-duration-label" class="text-xs font-mono font-bold text-primary">30 Minutes</span>
+        </div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button onclick="setCustomMinutes(10)" class="cyber-pill px-2.5 py-1 rounded-lg text-xs font-bold text-muted hover:text-primary transition-all">10m</button>
+          <button onclick="setCustomMinutes(20)" class="cyber-pill px-2.5 py-1 rounded-lg text-xs font-bold text-muted hover:text-primary transition-all">20m</button>
+          <button onclick="setCustomMinutes(30)" class="cyber-pill px-2.5 py-1 rounded-lg text-xs font-bold bg-primary/20 text-primary border border-primary/30 transition-all">30m</button>
+          <button onclick="setCustomMinutes(45)" class="cyber-pill px-2.5 py-1 rounded-lg text-xs font-bold text-muted hover:text-primary transition-all">45m</button>
+          <button onclick="setCustomMinutes(60)" class="cyber-pill px-2.5 py-1 rounded-lg text-xs font-bold text-muted hover:text-primary transition-all">60m</button>
+          <button onclick="setCustomMinutes(90)" class="cyber-pill px-2.5 py-1 rounded-lg text-xs font-bold text-muted hover:text-primary transition-all">90m</button>
+          <div class="flex items-center gap-1 ml-auto">
+            <input id="pomo-custom-min-input" type="number" min="1" max="240" placeholder="mins" onchange="setCustomMinutes(this.value)" class="w-14 text-xs font-mono text-center cyber-pill rounded-lg py-1 px-1 bg-transparent border"/>
+            <span class="text-[10px] text-muted">min</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cycle Selector (Visible in focus mode) -->
+    <div id="pomo-cycle-container" class="px-5 pb-3">
       <div class="flex items-center justify-between mb-1.5">
         <p class="text-[10px] font-bold uppercase tracking-wider text-muted font-mono">Sprint Cycles</p>
         <span class="text-[10px] text-primary font-bold" id="pomo-modal-cycle-summary">1 Cycle = 25m Focus</span>

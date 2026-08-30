@@ -2666,6 +2666,54 @@ def voice_input():
 # ------------------------------------------------------------------
 # Routes — TTS
 # ------------------------------------------------------------------
+def normalize_bengali_tts(raw_text):
+    """Clean, optimize, and normalize text into pure Bengali phonetic script for authentic natural neural TTS."""
+    if not raw_text:
+        return ""
+    # Strip HTML/XML tags, markdown formatting, emojis
+    cleaned = re.sub(r'</?[a-zA-Z]+[^>]*>', '', str(raw_text))
+    cleaned = re.sub(r'[\*\#\_`~]', '', cleaned)
+    cleaned = re.sub(r'[\U0001F300-\U0001F9FF\u2600-\u27BF\U0001FA00-\U0001FAFF]', '', cleaned)
+    
+    # Common Banglish to pure Bengali transliteration map for neural TTS
+    banglish_dict = {
+        'onaek': 'অনেক', 'onek': 'অনেক', 'bhalo': 'ভালো', 'valo': 'ভালো', 'balo': 'ভালো', 
+        'kaj': 'কাজ', 'korecho': 'করেছো', 'korechow': 'করেছো', 'korcho': 'করছো', 
+        'kortay': 'করতে', 'korte': 'করতে', 'hober': 'হবে', 'hobe': 'হবে', 'ekkhu': 'এক্কু', 
+        'ekku': 'এক্কু', 'ami': 'আমি', 'tumi': 'তুমি', 'tui': 'তুই', 'tor': 'তোর', 
+        'amar': 'আমার', 'apnar': 'আপনার', 'ki': 'কি', 'kire': 'কিরে', 'shob': 'সব', 
+        'sob': 'সব', 'thik': 'ঠিক', 'ache': 'আছে', 'nai': 'নাই', 'gecho': 'গেছো',
+        'porbo': 'পড়বো', 'porte': 'পড়তে', 'bostesi': 'বসতেছি', 'boshbo': 'বসবো', 
+        'khelbo': 'খেলবো', 'sesh': 'শেষ', 'dhonnobad': 'ধন্যবাদ', 'shun': 'শুন', 
+        'bol': 'বল', 'pomo': 'পোমোডোরো', 'timer': 'টাইমার', 'break': 'ব্রেক', 
+        'focus': 'ফোকাস', 'stop': 'বন্ধ', 'start': 'শুরু', 'cycle': 'সাইকেল'
+    }
+    
+    # If text is Romanized without Bengali characters, convert known words
+    has_bengali = bool(re.search(r'[\u0980-\u09FF]', cleaned))
+    if not has_bengali:
+        words = cleaned.split()
+        converted = []
+        for w in words:
+            w_lower = re.sub(r'[^\w]', '', w).lower()
+            if w_lower in banglish_dict:
+                converted.append(banglish_dict[w_lower])
+            else:
+                converted.append(w)
+        cleaned = " ".join(converted)
+
+    # Phonetic pronunciation fixes for edge-tts
+    cleaned = re.sub(r'(\b[ক-হ]*)তেসি\b', r'\1তেছি', cleaned)
+    cleaned = re.sub(r'(\b[ক-হ]*)গেসি\b', r'\1গেছি', cleaned)
+    cleaned = re.sub(r'\bযেন\b', 'যেনো', cleaned)
+    cleaned = re.sub(r'\bকেন\b', 'কেনো', cleaned)
+    cleaned = re.sub(r'\bএমন\b', 'অ্যামন', cleaned)
+    cleaned = re.sub(r'\bযেমন\b', 'য্যামন', cleaned)
+
+    cleaned = re.sub(r'[ \t]+', ' ', cleaned)
+    cleaned = re.sub(r'\n+', ' ', cleaned)
+    return cleaned.strip()
+
 @app.route('/tts', methods=['POST'])
 def tts():
     data = request.json or {}
@@ -2674,15 +2722,7 @@ def tts():
     if not text:
         return jsonify({"error": "No text"}), 400
 
-    def clean_text(raw):
-        # Strip any XML-like tags just in case they leak through
-        cleaned = re.sub(r'</?[a-zA-Z]+[^>]*>', '', raw)
-        cleaned = re.sub(r'[\U0001F300-\U0001F9FF\u2600-\u27BF]', '', cleaned)
-        cleaned = re.sub(r'[ \t]+', ' ', cleaned)
-        cleaned = re.sub(r'\n+', ' ', cleaned)
-        return cleaned.strip()
-
-    processed = clean_text(text)
+    processed = normalize_bengali_tts(text)
 
     # ── PRIMARY: edge-tts (best quality, Bengali neural voice) ──────────────
     # Works locally. Fails on PythonAnywhere free (WebSocket TCP blocked).
@@ -3842,10 +3882,12 @@ def focus_log():
     """Save a completed focus session."""
     user_id = get_current_user_id()
     data = request.get_json() or {}
-    task_label    = data.get('task_label', '').strip()
+    task_label    = data.get('task_label', '').strip() or 'Academic Focus'
     cycles_planned = int(data.get('cycles_planned', 1))
     cycles_done    = int(data.get('cycles_done', 1))
-    total_minutes  = cycles_done * 25
+    total_minutes  = int(data.get('total_minutes', 0))
+    if total_minutes <= 0:
+        total_minutes = cycles_done * 25
     today          = date.today().isoformat()
     started_at     = data.get('started_at', datetime.now().isoformat())
 
@@ -3968,7 +4010,7 @@ def focus_pa_briefing():
         "Return ONLY a JSON object with this exact schema:\n"
         "{\n"
         '  "message": "2-3 short, inspiring or advising sentences in natural Bengali/Banglish",\n'
-        '  "tts_text": "Phonetically optimized Bengali text for TTS without markdown/emojis",\n'
+        '  "tts_text": "Phonetically optimized text in PURE BENGALI SCRIPT (বাংলা হরফ) for TTS without markdown/emojis (e.g. অনেক ভালো কাজ করেছো... ফোকাস চালিয়ে যাও)",\n'
         '  "emotion": "hopeful | neutral | happy | tired",\n'
         '  "pa_suggestions": ["Action chip 1 (short)", "Action chip 2 (short)", "Action chip 3 (short)"],\n'
         '  "action_hint": "focus | break | review | task"\n'
@@ -4007,10 +4049,11 @@ Specific Stage Goal:
         clean_res = clean_res.strip()
         
         parsed = json.loads(clean_res)
+        raw_tts = parsed.get("tts_text", parsed.get("message", "ফোকাস চালিয়ে যাও দোস্ত"))
         return jsonify({
             "ok": True,
             "message": parsed.get("message", "ফোকাস চালিয়ে যাও দোস্ত, আমি পাশে আছি।"),
-            "tts_text": parsed.get("tts_text", parsed.get("message", "ফোকাস চালিয়ে যাও দোস্ত")),
+            "tts_text": normalize_bengali_tts(raw_tts),
             "emotion": parsed.get("emotion", "hopeful"),
             "pa_suggestions": parsed.get("pa_suggestions", [
                 "💧 ৫ মিনিটের পানি ও স্ট্রেচ ব্রেক",
