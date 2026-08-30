@@ -397,6 +397,23 @@
             <span>Pull &amp; Restore</span>
           </button>
         </div>
+
+        <!-- Export & Import Full Database Backups -->
+        <div class="pt-3 border-t border-darkborder/50 space-y-2">
+          <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">1-Click Local ⇄ Cloud Data Bridge</p>
+          <div class="grid grid-cols-2 gap-2.5">
+            <a href="/api/admin/export_backup" class="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 transition active:scale-95 shadow-sm">
+              <span class="material-symbols-outlined text-[16px]">file_download</span>
+              <span>Export Backup (.json)</span>
+            </a>
+
+            <button onclick="triggerImportBackup()" id="btn-import-backup" class="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 transition active:scale-95 shadow-sm">
+              <span class="material-symbols-outlined text-[16px]">file_upload</span>
+              <span>Import &amp; Restore</span>
+            </button>
+            <input type="file" id="backup-file-input" class="hidden" accept=".json" onchange="handleBackupFileSelected(event)"/>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -808,6 +825,52 @@ async function pullFromTurso() {
   } finally {
     btn.disabled = false;
     btn.classList.remove('opacity-50');
+  }
+}
+
+function triggerImportBackup() {
+  document.getElementById('backup-file-input').click();
+}
+
+async function handleBackupFileSelected(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!confirm(`Are you sure you want to restore all data from "${file.name}"?\n\nThis will restore all chat messages, memories, exams, and routines into this server and replicate to Turso Cloud.`)) {
+    event.target.value = '';
+    return;
+  }
+  
+  const btn = document.getElementById('btn-import-backup');
+  btn.disabled = true;
+  btn.classList.add('opacity-50');
+  
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  try {
+    const res = await fetch('/api/admin/import_backup', {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      let err = `Server returned HTTP ${res.status}`;
+      try { const j = JSON.parse(text); if (j.error) err = j.error; } catch(_) {}
+      throw new Error(err);
+    }
+    const d = await res.json();
+    if (d.ok) {
+      alert(`🎉 Restore Successful!\n\n${d.message}\n\nAll chat messages, memories, exams, and routines are restored!`);
+      location.reload();
+    } else {
+      alert(`❌ Restore Failed: ${d.error || 'Unknown error'}`);
+    }
+  } catch (e) {
+    alert(`❌ Import error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('opacity-50');
+    event.target.value = '';
   }
 }
 

@@ -2330,6 +2330,121 @@ def api_admin_sync_pull():
     res = TURSO_SYNC.pull_all_from_turso()
     return jsonify(res)
 
+@app.route('/api/admin/export_backup', methods=['GET'])
+def api_admin_export_backup():
+    """Export complete snapshot of all users, configs, sessions, keys, and SQLite data as downloadable JSON."""
+    try:
+        backup = {
+            "version": "2.5",
+            "exported_at": now_bd_iso(),
+            "users_config": load_config(),
+            "active_sessions": load_sessions(),
+            "ekku_key": None,
+            "databases": {}
+        }
+        if os.path.exists('ekku.key'):
+            with open('ekku.key', 'rb') as f:
+                backup["ekku_key"] = f.read().decode('utf-8', errors='ignore')
+                
+        users = load_users()
+        for u in users:
+            uid = u['id']
+            db_path = f'user_{uid}.db'
+            if not os.path.exists(db_path):
+                continue
+            
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            user_data = {}
+            for tbl in SYNCED_TABLES:
+                try:
+                    c.execute(f"SELECT * FROM {tbl}")
+                    rows = c.fetchall()
+                    user_data[tbl] = [dict(r) for r in rows]
+                except Exception:
+                    user_data[tbl] = []
+            conn.close()
+            backup["databases"][uid] = user_data
+
+        resp = jsonify(backup)
+        resp.headers["Content-Disposition"] = f"attachment; filename=ekkhu_full_backup_{date.today().isoformat()}.json"
+        return resp
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route('/api/admin/import_backup', methods=['POST'])
+def api_admin_import_backup():
+    """Import and restore full backup JSON into local SQLite and push to Turso."""
+    try:
+        data = None
+        if 'file' in request.files:
+            f = request.files['file']
+            data = json.load(f)
+        elif request.is_json:
+            data = request.get_json()
+            
+        if not data or not isinstance(data, dict):
+            return jsonify({"ok": False, "error": "Invalid backup file format"}), 400
+
+        # 1. Restore users_config
+        if 'users_config' in data and data['users_config']:
+            save_config(data['users_config'])
+            load_config(force_reload=True)
+
+        # 2. Restore active_sessions
+        if 'active_sessions' in data and data['active_sessions']:
+            save_sessions(data['active_sessions'])
+            load_sessions(force_reload=True)
+
+        # 3. Restore ekku.key
+        if data.get('ekku_key'):
+            with open('ekku.key', 'wb') as f:
+                f.write(data['ekku_key'].encode('utf-8') if isinstance(data['ekku_key'], str) else data['ekku_key'])
+
+        # 4. Restore user databases
+        databases = data.get('databases', {})
+        total_records = 0
+        restored_users = []
+
+        for uid, user_tables in databases.items():
+            conn = sqlite3.connect(f'user_{uid}.db')
+            conn.row_factory = sqlite3.Row
+            init_db_schema(conn)
+            c = conn.cursor()
+
+            for tbl, rows in user_tables.items():
+                if not rows: continue
+                c.execute(f"DELETE FROM {tbl}")
+                cols = list(rows[0].keys())
+                placeholders = ",".join(["?"] * len(cols))
+                col_str = ",".join(cols)
+                for r in rows:
+                    vals = [r.get(col) for col in cols]
+                    c.execute(f"INSERT OR REPLACE INTO {tbl} ({col_str}) VALUES ({placeholders})", vals)
+                    total_records += 1
+
+            conn.commit()
+            conn.close()
+            restored_users.append(uid)
+
+        # Push restored data to Turso if configured
+        if TURSO_SYNC.is_configured():
+            try:
+                TURSO_SYNC.push_all_to_turso()
+            except Exception as pe:
+                print("[TURSO] Error syncing imported backup to Turso:", pe)
+
+        return jsonify({
+            "ok": True,
+            "message": f"Successfully restored {total_records} records across {len(restored_users)} user(s)!",
+            "records_restored": total_records,
+            "users_restored": restored_users
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.route('/api/admin/reset_metrics', methods=['POST'])
 def api_admin_reset_metrics():
     """Reset today's counters and event logs."""
