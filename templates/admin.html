@@ -762,6 +762,12 @@ async function pushToTurso() {
   btn.classList.add('opacity-50');
   try {
     const res = await fetch('/api/admin/sync_push', { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text();
+      let err = `Server returned HTTP ${res.status}`;
+      try { const j = JSON.parse(text); if (j.error) err = j.error; } catch(_) {}
+      throw new Error(err);
+    }
     const d = await res.json();
     if (d.ok) {
       alert(`✅ Success: Backed up ${d.records_pushed} records across ${d.users_synced ? d.users_synced.length : 0} users to Turso!`);
@@ -770,7 +776,7 @@ async function pushToTurso() {
     }
     fetchMetrics();
   } catch (e) {
-    alert(`❌ Network error: ${e.message}`);
+    alert(`❌ Sync error: ${e.message}`);
   } finally {
     btn.disabled = false;
     btn.classList.remove('opacity-50');
@@ -784,6 +790,12 @@ async function pullFromTurso() {
   btn.classList.add('opacity-50');
   try {
     const res = await fetch('/api/admin/sync_pull', { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text();
+      let err = `Server returned HTTP ${res.status}`;
+      try { const j = JSON.parse(text); if (j.error) err = j.error; } catch(_) {}
+      throw new Error(err);
+    }
     const d = await res.json();
     if (d.ok) {
       alert(`✅ Success: Restored ${d.records_restored} records across ${d.users_synced ? d.users_synced.length : 0} users from Turso!`);
@@ -792,7 +804,7 @@ async function pullFromTurso() {
     }
     fetchMetrics();
   } catch (e) {
-    alert(`❌ Network error: ${e.message}`);
+    alert(`❌ Sync error: ${e.message}`);
   } finally {
     btn.disabled = false;
     btn.classList.remove('opacity-50');

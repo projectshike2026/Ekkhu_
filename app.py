@@ -415,9 +415,10 @@ class TursoCursor:
         ]
 
     def _rewrite(self, sql):
-        # Prevent double prefixing if it's already prefixed
+        # Prevent double prefixing if it's already prefixed with {user_id}_
         for t in self.tables:
-            sql = re.sub(rf'\b{t}\b', f'{self.user_id}_{t}', sql, flags=re.IGNORECASE)
+            pattern = rf'(?<!{re.escape(self.user_id)}_)\b{t}\b'
+            sql = re.sub(pattern, f'{self.user_id}_{t}', sql, flags=re.IGNORECASE)
         # Restore if it accidentally replaced global_store
         sql = sql.replace(f'{self.user_id}_global_store', 'global_store')
         return sql
@@ -513,7 +514,7 @@ class TursoSyncManager:
             
         with self._sync_lock:
             try:
-                # 1. Pull global store (users_config, ekku_key)
+                # 1. Pull global store (users_config, ekku_key, active_sessions)
                 g_conn = self._get_turso_conn("global")
                 gc = g_conn.cursor()
                 try:
@@ -529,13 +530,24 @@ class TursoSyncManager:
                                     json.dump(cfg, f, indent=2)
                                 load_config(force_reload=True)
                                 print("[TURSO_SYNC] Restored users_config from Turso.")
-                            except Exception: pass
+                            except Exception as e:
+                                print("[TURSO_SYNC] Error restoring users_config:", e)
+                        elif k == 'active_sessions' and v:
+                            try:
+                                sess = json.loads(v)
+                                with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
+                                    json.dump(sess, f, indent=2)
+                                load_sessions(force_reload=True)
+                                print("[TURSO_SYNC] Restored active_sessions from Turso.")
+                            except Exception as e:
+                                print("[TURSO_SYNC] Error restoring active_sessions:", e)
                         elif k == 'ekku_key' and v:
                             try:
                                 with open('ekku.key', 'wb') as f:
-                                    f.write(v.encode() if isinstance(v, str) else v)
+                                    f.write(v.encode('utf-8') if isinstance(v, str) else v)
                                 print("[TURSO_SYNC] Restored ekku.key from Turso.")
-                            except Exception: pass
+                            except Exception as e:
+                                print("[TURSO_SYNC] Error restoring ekku.key:", e)
                 except Exception as ge:
                     print("[TURSO_SYNC] Global store pull error:", ge)
 
@@ -555,9 +567,8 @@ class TursoSyncManager:
                     lc = local_conn.cursor()
 
                     for tbl in SYNCED_TABLES:
-                        turso_tbl = f"{uid}_{tbl}"
                         try:
-                            uc.execute(f"SELECT * FROM {turso_tbl}")
+                            uc.execute(f"SELECT * FROM {tbl}")
                             rows = uc.fetchall()
                             if rows:
                                 cols = list(rows[0].keys())
@@ -594,10 +605,12 @@ class TursoSyncManager:
             try:
                 # 1. Push global store
                 cfg = load_config()
+                sess = load_sessions()
                 g_conn = self._get_turso_conn("global")
                 gc = g_conn.cursor()
                 gc.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
                 gc.execute("INSERT OR REPLACE INTO global_store (key, value) VALUES ('users_config', ?)", (json.dumps(cfg),))
+                gc.execute("INSERT OR REPLACE INTO global_store (key, value) VALUES ('active_sessions', ?)", (json.dumps(sess),))
                 
                 if os.path.exists('ekku.key'):
                     with open('ekku.key', 'rb') as f:
@@ -623,11 +636,10 @@ class TursoSyncManager:
                     uc = u_conn.cursor()
 
                     for tbl in SYNCED_TABLES:
-                        turso_tbl = f"{uid}_{tbl}"
                         lc.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{tbl}'")
                         schema_row = lc.fetchone()
                         if schema_row and schema_row['sql']:
-                            create_sql = schema_row['sql'].replace(f"CREATE TABLE {tbl}", f"CREATE TABLE IF NOT EXISTS {turso_tbl}").replace(f"CREATE TABLE IF NOT EXISTS {tbl}", f"CREATE TABLE IF NOT EXISTS {turso_tbl}")
+                            create_sql = schema_row['sql'].replace(f"CREATE TABLE {tbl}", f"CREATE TABLE IF NOT EXISTS {tbl}").replace(f"CREATE TABLE IF NOT EXISTS {tbl}", f"CREATE TABLE IF NOT EXISTS {tbl}")
                             try:
                                 uc.execute(create_sql)
                             except Exception:
@@ -636,29 +648,31 @@ class TursoSyncManager:
                         lc.execute(f"SELECT * FROM {tbl}")
                         rows = lc.fetchall()
                         try:
-                            uc.execute(f"DELETE FROM {turso_tbl}")
+                            uc.execute(f"DELETE FROM {tbl}")
                             if rows:
                                 cols = [k for k in rows[0].keys()]
                                 col_str = ",".join(cols)
                                 placeholders = ",".join(["?"] * len(cols))
                                 for r in rows:
                                     vals = [r[k] for k in cols]
-                                    uc.execute(f"INSERT INTO {turso_tbl} ({col_str}) VALUES ({placeholders})", vals)
+                                    uc.execute(f"INSERT INTO {tbl} ({col_str}) VALUES ({placeholders})", vals)
                                     total_records += 1
                         except Exception as pe:
-                            print(f"[TURSO_SYNC] Error pushing {turso_tbl}:", pe)
+                            print(f"[TURSO_SYNC] Error pushing {tbl} for {uid}:", pe)
 
                     local_conn.close()
                     synced_users.append(uid)
 
                 self.last_sync_time = now_bd_iso()
-                self.last_sync_status = f"Backed up {total_records} records for {len(synced_users)} user(s)"
+                self.last_sync_status = f"Backed up {total_records} records across {len(synced_users)} user(s)"
                 print(f"[TURSO_SYNC] Push complete: {self.last_sync_status}")
                 return {"ok": True, "users_synced": synced_users, "records_pushed": total_records, "time": self.last_sync_time}
             except Exception as e:
                 import traceback; traceback.print_exc()
                 self.last_sync_status = f"Push failed: {e}"
                 return {"ok": False, "error": str(e)}
+
+
 
     def trigger_async_push(self, user_id='A'):
         """Schedule a non-blocking background backup to Turso."""

@@ -1131,8 +1131,11 @@ function updateNextClassCountdown() {
     const timeLabel = document.getElementById('next-class-time-label');
     const countEl = document.getElementById('next-class-countdown');
 
+    const banner = document.getElementById('dash-next-class-banner');
+
     // 1. Academic Break & Exam Mode Override
     if (currentAcademicState && currentAcademicState.is_active_break) {
+        if (banner) banner.classList.remove('hidden');
         const mode = currentAcademicState.mode;
         const days = currentAcademicState.days_remaining || 0;
         if (mode === 'prep_leave') {
@@ -1144,7 +1147,6 @@ function updateNextClassCountdown() {
                 countEl.textContent = `${days}d`;
                 countEl.className = 'text-base md:text-2xl font-mono font-black text-amber-500';
             }
-            updateDynamicIslandUI('PL SPRINT', '📖 Prep Leave Active', `${days}d Left`, false);
         } else if (mode === 'exam_week') {
             if (titleEl) titleEl.textContent = 'Exam Season / Finals 🎯';
             if (metaEl) metaEl.textContent = 'Check upcoming exam schedule & 72-Hour Survival protocols.';
@@ -1154,7 +1156,6 @@ function updateNextClassCountdown() {
                 countEl.textContent = 'EXAMS';
                 countEl.className = 'text-base md:text-2xl font-mono font-black text-rose-500';
             }
-            updateDynamicIslandUI('EXAMS', '🎯 Exam Season', 'Finals', false);
         } else if (mode === 'semester_break') {
             if (titleEl) titleEl.textContent = 'Semester Break / Vacation 🌴';
             if (metaEl) metaEl.textContent = 'Academic obligations paused. Recharge & relax!';
@@ -1164,7 +1165,6 @@ function updateNextClassCountdown() {
                 countEl.textContent = 'CHILL';
                 countEl.className = 'text-base md:text-2xl font-mono font-black text-emerald-500';
             }
-            updateDynamicIslandUI('VACATION', '🌴 Semester Break', 'Chill', false);
         } else if (mode === 'holiday') {
             if (titleEl) titleEl.textContent = 'University Holiday / Off 🏖️';
             if (metaEl) metaEl.textContent = currentAcademicState.note || 'Campus closed today.';
@@ -1174,23 +1174,16 @@ function updateNextClassCountdown() {
                 countEl.textContent = 'OFF';
                 countEl.className = 'text-base md:text-2xl font-mono font-black text-sky-500';
             }
-            updateDynamicIslandUI('HOLIDAY', '🏖️ University Off', 'Closed', false);
         }
         return;
     }
 
     if (!cachedTodayClasses || cachedTodayClasses.length === 0) {
-        if (titleEl) titleEl.textContent = 'No classes scheduled today 🎉';
-        if (metaEl) metaEl.textContent = 'Take time to review your weekly study goals and recharge.';
-        if (badgeEl) { badgeEl.textContent = 'FREE DAY'; badgeEl.className = 'text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'; }
-        if (timeLabel) timeLabel.textContent = 'STATUS';
-        if (countEl) {
-            countEl.textContent = 'CLEAR';
-            countEl.className = 'text-base md:text-2xl font-mono font-black text-emerald-500 dark:text-emerald-400';
-        }
-        updateDynamicIslandUI('FREE DAY', 'No Classes Today 🎉', 'CLEAR', false);
+        if (banner) banner.classList.add('hidden');
         return;
     }
+
+    if (banner) banner.classList.remove('hidden');
 
     const now = new Date();
     const nowMins = now.getHours() * 60 + now.getMinutes();
