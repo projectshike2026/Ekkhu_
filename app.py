@@ -508,7 +508,8 @@ SYNCED_TABLES = [
     "routine", "attendance", "budget", "tasks", "plans", 
     "grades", "chat_history", "long_term_memory", 
     "focus_sessions", "exams", "academic_profile", 
-    "academic_state", "schedule_exceptions", "proactive_state"
+    "academic_state", "schedule_exceptions", "proactive_state",
+    "active_timer_state"
 ]
 
 class TursoSyncManager:
@@ -809,6 +810,18 @@ def init_db_schema(conn):
         total_minutes INTEGER DEFAULT 25,
         date TEXT,
         started_at TEXT
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS active_timer_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        mode TEXT,
+        task TEXT,
+        custom_minutes INTEGER DEFAULT 25,
+        cycles INTEGER DEFAULT 1,
+        cycles_done INTEGER DEFAULT 0,
+        start_time_ms INTEGER,
+        target_end_time_ms INTEGER,
+        is_running INTEGER DEFAULT 1,
+        updated_at TEXT
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS exams (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3948,8 +3961,84 @@ def api_delete_schedule_exception(exc_id):
     return jsonify({"ok": True})
 
 # ------------------------------------------------------------------
-# Focus Session Tracking API
+# Focus Session Tracking & Persistent Real-time Active Timer API
 # ------------------------------------------------------------------
+@app.route('/api/focus/active_timer', methods=['GET', 'POST', 'DELETE'])
+def api_active_timer():
+    """Real-time server-side timer state persistence across browser reloads, phone/laptop shutdowns."""
+    user_id = get_current_user_id()
+    conn = get_db(user_id)
+    c = conn.cursor()
+
+    if request.method == 'GET':
+        try:
+            row = c.execute('SELECT * FROM active_timer_state WHERE id = 1').fetchone()
+            conn.close()
+            if not row or not row['is_running']:
+                return jsonify({'active': False})
+            return jsonify({
+                'active': True,
+                'mode': row['mode'],
+                'task': row['task'],
+                'custom_minutes': row['custom_minutes'],
+                'cycles': row['cycles'],
+                'cycles_done': row['cycles_done'],
+                'start_time_ms': row['start_time_ms'],
+                'target_end_time_ms': row['target_end_time_ms'],
+                'is_running': bool(row['is_running']),
+                'updated_at': row['updated_at']
+            })
+        except Exception as e:
+            conn.close()
+            return jsonify({'active': False, 'error': str(e)})
+
+    elif request.method == 'POST':
+        data = request.get_json() or {}
+        mode = data.get('mode', 'focus')
+        task = data.get('task', 'Focus Sprint')
+        custom_minutes = int(data.get('custom_minutes', 25))
+        cycles = int(data.get('cycles', 1))
+        cycles_done = int(data.get('cycles_done', 0))
+        start_time_ms = int(data.get('start_time_ms', int(time.time() * 1000)))
+        target_end_time_ms = int(data.get('target_end_time_ms', 0))
+        is_running = 1 if data.get('is_running', True) else 0
+        updated_at = datetime.now().isoformat()
+
+        try:
+            c.execute('''
+                INSERT INTO active_timer_state (id, mode, task, custom_minutes, cycles, cycles_done, start_time_ms, target_end_time_ms, is_running, updated_at)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    mode=excluded.mode,
+                    task=excluded.task,
+                    custom_minutes=excluded.custom_minutes,
+                    cycles=excluded.cycles,
+                    cycles_done=excluded.cycles_done,
+                    start_time_ms=excluded.start_time_ms,
+                    target_end_time_ms=excluded.target_end_time_ms,
+                    is_running=excluded.is_running,
+                    updated_at=excluded.updated_at
+            ''', (mode, task, custom_minutes, cycles, cycles_done, start_time_ms, target_end_time_ms, is_running, updated_at))
+            conn.commit()
+            conn.close()
+            TURSO_SYNC.trigger_async_push(user_id)
+            return jsonify({'ok': True, 'saved': True})
+        except Exception as e:
+            conn.close()
+            return jsonify({'ok': False, 'error': str(e)}), 500
+
+    elif request.method == 'DELETE':
+        try:
+            c.execute('DELETE FROM active_timer_state WHERE id = 1')
+            conn.commit()
+            conn.close()
+            TURSO_SYNC.trigger_async_push(user_id)
+            return jsonify({'ok': True, 'cleared': True})
+        except Exception as e:
+            conn.close()
+            return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/api/focus/log', methods=['POST'])
 def focus_log():
     """Save a completed focus session."""

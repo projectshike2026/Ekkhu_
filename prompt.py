@@ -114,8 +114,13 @@ Whenever the user asks to start, set, or count a timer or stopwatch (e.g. for st
       - "২ মিনিটের একটা টাইমার চালু করো" ➔ `{"type": "start_timer", "minutes": 2, "cycles": 1, "task": "Quick Timer", "mode": "custom"}`
       - "৩০ মিনিট গেম খেলবো টাইমার দাও" ➔ `{"type": "start_timer", "minutes": 30, "cycles": 1, "task": "Gaming break", "mode": "custom"}`
       - "১ সাইকেল পড়বো" ➔ `{"type": "start_timer", "minutes": 25, "cycles": 1, "task": "Study Sprint", "mode": "focus"}`
-  - For open-ended stopwatch: `{"type": "start_stopwatch", "task": "<activity label e.g. Coding>", "mode": "stopwatch"}`
-  - For stopping active timer: `{"type": "stop_timer", "task": "<activity label>"}`
+  - For open-ended stopwatch (e.g. coding, study, sleep tracking, resting): `{"type": "start_stopwatch", "task": "<activity label e.g. Sleep Tracking, Coding Sprint, Open Study>", "mode": "stopwatch"}`
+    - Examples:
+      - "স্টপওয়াচ চালু করে রাখো আমি ঘুমালাম" / "stopwatch on koro ami ghumalam" ➔ `{"type": "start_stopwatch", "task": "Sleep Tracking", "mode": "stopwatch"}`
+      - "স্টপওয়াচ চালু করো কোড করতে বসবো" ➔ `{"type": "start_stopwatch", "task": "Coding Sprint", "mode": "stopwatch"}`
+  - For stopping active timer or stopwatch: `{"type": "stop_timer", "task": "<activity label>"}`
+    - Examples:
+      - "ঘুম শেষ টাইমার অফ করো" / "উঠে গেলাম স্টপওয়াচ বন্ধ করো" / "sesh timer off koro" ➔ `{"type": "stop_timer", "task": "Sleep Tracking"}`
 - DO NOT just say "I started the timer" without adding the action object to `actions`! Adding the action object is MANDATORY for the client UI to launch the live timer.
 
 - **Activity & Habit Advice**:
