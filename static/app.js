@@ -2884,7 +2884,6 @@ function executeClientActions(actions) {
             const mins = parseInt(action.minutes, 10) || 25;
             const cycles = parseInt(action.cycles, 10) || 1;
             const task = action.task || action.title || 'Focus Sprint';
-            const mode = action.mode || (mins === 25 ? 'focus' : 'custom');
 
             pomoTaskLabel = task;
             const mInp = document.getElementById('pomo-task-label');
@@ -2892,16 +2891,21 @@ function executeClientActions(actions) {
             if (mInp) mInp.value = task;
             if (cInp) cInp.value = task;
 
-            if (mode === 'custom' || (mins !== 25 && cycles === 1)) {
+            if (mins !== 25 || action.mode === 'custom') {
                 setPomodoroMode('custom');
                 setCustomMinutes(mins);
-            } else {
+                pomoSecondsLeft = mins * 60;
+            } else if (cycles > 1) {
                 setPomodoroMode('focus');
                 setPomoCycles(cycles);
+                pomoSecondsLeft = 25 * 60;
+            } else {
+                setPomodoroMode('focus');
+                pomoSecondsLeft = 25 * 60;
             }
 
             openPomodoroModal();
-            startPomodoroTimer();
+            startPomodoroTimer(true);
             toast(`🎯 Ekkhu started ${mins}m timer for "${task}"!`, 'success');
             playHaptic('pop');
 
@@ -2915,7 +2919,7 @@ function executeClientActions(actions) {
 
             setPomodoroMode('stopwatch');
             openPomodoroModal();
-            startPomodoroTimer();
+            startPomodoroTimer(true);
             toast(`⏱️ Ekkhu started stopwatch for "${task}"!`, 'success');
             playHaptic('pop');
 
@@ -2942,11 +2946,53 @@ function executeClientActions(actions) {
     });
 }
 
+// ── Client-Side Intelligent Timer Duration Parser ───────────────────
+function parseClientTimerDuration(text) {
+    if (!text || typeof text !== 'string') return null;
+    let t = text.toLowerCase();
+    const bDigits = { '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9' };
+    for (const [bd, ed] of Object.entries(bDigits)) t = t.replaceAll(bd, ed);
+
+    const m = t.match(/(\d+)\s*(?:min|minute|মিনিট|minit|mnt|m\b|ঘণ্টা|ghonta|hour|hr)/);
+    if (m) {
+        let val = parseInt(m[1], 10);
+        if (/(\d+)\s*(?:ঘণ্টা|ghonta|hour|hr)/.test(t)) val *= 60;
+        return val;
+    }
+
+    const wordMap = [
+        [['ek ghonta', 'এক ঘণ্টা', '1 hour', '1 hr'], 60],
+        [['adho ghonta', 'আধ ঘণ্টা', 'half hour'], 30],
+        [['pochish', 'পঁচিশ'], 25],
+        [['ponero', 'পনেরো'], 15],
+        [['dosh', 'দশ'], 10],
+        [['sat', 'সাত'], 7],
+        [['choy', 'ছয়', 'ছয়'], 6],
+        [['pach', 'পাঁচ', 'পাচ'], 5],
+        [['char', 'চার'], 4],
+        [['tin', 'তিন'], 3],
+        [['dui', 'দুই', 'duto'], 2],
+        [['ek', 'এক', 'akta', 'ekta', '1'], 1]
+    ];
+
+    for (const [words, mins] of wordMap) {
+        for (const w of words) {
+            const reg = new RegExp(`\\b${w}\\b`, 'i');
+            if (reg.test(t)) {
+                if (['min', 'mnt', 'মিনিট', 'timer', 'টাইমার', 'ন্যাপ', 'nap', 'ঘণ্টা', 'hour'].some(k => t.includes(k))) {
+                    return mins;
+                }
+            }
+        }
+    }
+    return null;
+}
+
 // ── Client-Side Intelligent Timer Intent Fallback ───────────────────
 function checkAndTriggerClientTimerFallback(text) {
     if (!text || typeof text !== 'string') return;
     const lower = text.toLowerCase();
-    const isTimer = lower.includes('timer') || lower.includes('টাইমার') || lower.includes('ন্যাপ') || lower.includes('nap') || lower.includes('stopwatch') || lower.includes('স্টপওয়াচ') || lower.includes('স্টপওয়াচ');
+    const isTimer = lower.includes('timer') || lower.includes('টাইমার') || lower.includes('ন্যাপ') || lower.includes('nap') || lower.includes('stopwatch') || lower.includes('স্টপওয়াচ') || lower.includes('স্টপওয়াচ') || lower.includes('mnt') || lower.includes('min') || lower.includes('মিনিট');
     if (!isTimer) return;
 
     if (lower.includes('stop') || lower.includes('বন্ধ') || lower.includes('থামাও') || lower.includes('অফ')) {
@@ -2958,15 +3004,11 @@ function checkAndTriggerClientTimerFallback(text) {
         return;
     }
 
-    const bDigits = { '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9' };
-    let norm = lower;
-    for (const [bd, ed] of Object.entries(bDigits)) {
-        norm = norm.replaceAll(bd, ed);
-    }
+    const parsedMins = parseClientTimerDuration(lower);
+    if (parsedMins === null && !lower.includes('timer') && !lower.includes('টাইমার') && !lower.includes('ন্যাপ') && !lower.includes('nap')) return;
 
-    const m = norm.match(/(\d+)\s*(?:min|minute|মিনিট|minit|m\b)/);
-    const mins = m ? parseInt(m[1], 10) : (lower.includes('ন্যাপ') || lower.includes('nap') ? 5 : 25);
-    const task = (lower.includes('ন্যাপ') || lower.includes('nap')) ? '5m Power Nap' : ((lower.includes('game') || lower.includes('গেম')) ? 'Gaming Break' : 'Focus Sprint');
+    const mins = parsedMins !== null ? parsedMins : (lower.includes('ন্যাপ') || lower.includes('nap') ? 5 : 25);
+    const task = (lower.includes('ন্যাপ') || lower.includes('nap')) ? '5m Power Nap' : ((lower.includes('game') || lower.includes('গেম')) ? 'Gaming Break' : `${mins}m Sprint`);
 
     executeClientActions([{
         type: 'start_timer',

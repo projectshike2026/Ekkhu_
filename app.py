@@ -3030,6 +3030,42 @@ def tts_debug():
 
     return jsonify(report), 200
 
+def parse_timer_duration_minutes(text):
+    if not text:
+        return None
+    t = str(text).lower()
+    bengali_digits = {'০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9'}
+    for bd, ed in bengali_digits.items():
+        t = t.replace(bd, ed)
+
+    m_num = re.search(r'(\d+)\s*(?:min|minute|মিনিট|minit|mnt|m\b|ঘণ্টা|ghonta|hour|hr)', t)
+    if m_num:
+        val = int(m_num.group(1))
+        if re.search(r'(\d+)\s*(?:ঘণ্টা|ghonta|hour|hr)', t):
+            val = val * 60
+        return val
+
+    word_map = [
+        (['ek ghonta', 'এক ঘণ্টা', '1 hour', '1 hr'], 60),
+        (['adho ghonta', 'আধ ঘণ্টা', 'half hour'], 30),
+        (['pochish', 'পঁচিশ'], 25),
+        (['ponero', 'পনেরো'], 15),
+        (['dosh', 'দশ'], 10),
+        (['sat', 'সাত'], 7),
+        (['choy', 'ছয়', 'ছয়'], 6),
+        (['pach', 'পাঁচ', 'পাচ'], 5),
+        (['char', 'চার'], 4),
+        (['tin', 'তিন'], 3),
+        (['dui', 'দুই', 'duto'], 2),
+        (['ek', 'এক', 'akta', 'ekta', '1'], 1),
+    ]
+    for words, mins in word_map:
+        for w in words:
+            if re.search(r'\b' + re.escape(w) + r'\b', t):
+                if any(k in t for k in ['min', 'mnt', 'মিনিট', 'timer', 'টাইমার', 'ন্যাপ', 'nap', 'ঘণ্টা', 'hour']):
+                    return mins
+    return None
+
 # ------------------------------------------------------------------
 # Routes — Chat
 # ------------------------------------------------------------------
@@ -3165,26 +3201,21 @@ def chat():
 
         # Deterministic Intent Fallback / Reinforcement for Timer/Stopwatch
         user_lower = (user_text or "").lower()
-        has_timer_kw = any(w in user_lower for w in ["timer", "টাইমার", "ন্যাপ", "nap", "countdown", "স্টপওয়াচ", "স্টপওয়াচ", "stopwatch"])
+        has_timer_kw = any(w in user_lower for w in ["timer", "টাইমার", "ন্যাপ", "nap", "countdown", "স্টপওয়াচ", "স্টপওয়াচ", "stopwatch", "mnt", "min", "মিনিট", "ঘণ্টা", "hour"])
 
         if has_timer_kw:
             has_timer_act = any(a.get("type") in ["start_timer", "start_stopwatch", "stop_timer"] for a in actions if isinstance(a, dict))
-            if not has_timer_act:
-                bengali_digits = {'০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9'}
-                clean_text_num = user_lower
-                for b_d, e_d in bengali_digits.items():
-                    clean_text_num = clean_text_num.replace(b_d, e_d)
-                
-                m_mins = re.search(r'(\d+)\s*(?:min|minute|মিনিট|minit)', clean_text_num)
-                if m_mins:
-                    mins = int(m_mins.group(1))
-                    task_name = "5m Power Nap" if ("ন্যাপ" in user_lower or "nap" in user_lower) else ("Gaming Break" if "game" in user_lower or "গেম" in user_lower else "Focus Sprint")
+            extracted_mins = parse_timer_duration_minutes(user_lower)
+
+            if not has_timer_act and ("timer" in user_lower or "টাইমার" in user_lower or "ন্যাপ" in user_lower or "nap" in user_lower or "mnt" in user_lower or "min" in user_lower or "মিনিট" in user_lower or "countdown" in user_lower):
+                if extracted_mins is not None:
+                    task_name = "5m Power Nap" if ("ন্যাপ" in user_lower or "nap" in user_lower) else ("Gaming Break" if "game" in user_lower or "গেম" in user_lower else f"{extracted_mins}m Sprint")
                     actions.append({
                         "type": "start_timer",
-                        "minutes": mins,
+                        "minutes": extracted_mins,
                         "cycles": 1,
                         "task": task_name,
-                        "mode": "custom" if mins != 25 else "focus"
+                        "mode": "custom" if extracted_mins != 25 else "focus"
                     })
                 elif "stopwatch" in user_lower or "স্টপওয়াচ" in user_lower or "স্টপওয়াচ" in user_lower:
                     actions.append({
@@ -3192,11 +3223,17 @@ def chat():
                         "task": "Activity Sprint",
                         "mode": "stopwatch"
                     })
-                elif "stop" in user_lower or "বন্ধ" in user_lower or "থামাও" in user_lower:
+                elif "stop" in user_lower or "বন্ধ" in user_lower or "থামাও" in user_lower or "অফ" in user_lower:
                     actions.append({
                         "type": "stop_timer",
                         "task": "Focus Session"
                     })
+            elif has_timer_act and extracted_mins is not None:
+                # Override minutes if LLM defaulted to 25 but user requested specific duration
+                for a in actions:
+                    if isinstance(a, dict) and a.get("type") == "start_timer" and a.get("minutes") == 25 and extracted_mins != 25:
+                        a["minutes"] = extracted_mins
+                        a["mode"] = "custom"
 
         # Single DB write session for saving response, memory, and actions
         write_conn = get_db(user_id)
