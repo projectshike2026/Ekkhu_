@@ -3269,8 +3269,9 @@ def chat():
         reply_data = ["আরে দোস্ত, নেটওয়ার্কে একটু ঝামেলা হইছিল। আবার একটু বলবি?"]
         emotion = "neutral"
         tts_text = "আরে দোস্ত, নেটওয়ার্কে একটু ঝামেলা হইছিল। আবার একটু বলবি?"
+        actions = []
 
-    return jsonify({"reply": reply_data, "emotion": emotion, "tts_text": tts_text})
+    return jsonify({"reply": reply_data, "emotion": emotion, "tts_text": tts_text, "actions": actions})
 
 @app.route('/api/chat/history')
 def chat_history_api():
