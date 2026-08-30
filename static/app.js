@@ -2393,7 +2393,11 @@ function initPomodoroDisplay() {
 
 function openPomodoroModal() {
     playHaptic('tap');
-    document.getElementById('pomodoro-modal').classList.remove('hidden');
+    const modal = document.getElementById('pomodoro-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+    }
     // Sync task label from card to modal
     const cardInput = document.getElementById('pomo-task-label-card');
     const modalInput = document.getElementById('pomo-task-label');
@@ -2409,7 +2413,11 @@ function openPomodoroModal() {
 
 function closePomodoroModal() {
     playHaptic('tap');
-    document.getElementById('pomodoro-modal').classList.add('hidden');
+    const modal = document.getElementById('pomodoro-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
     // Sync task label back to card
     const cardInput = document.getElementById('pomo-task-label-card');
     const modalInput = document.getElementById('pomo-task-label');
