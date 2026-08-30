@@ -3902,19 +3902,41 @@ async function sendChat() {
     try {
         const res = await fetch('/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken || '' },
+            headers: { 
+                'Content-Type': 'application/json', 
+                'X-Session-Token': sessionToken || '',
+                'Authorization': 'Bearer ' + (sessionToken || '')
+            },
             body: JSON.stringify({ message: msg })
         });
-        const data = await res.json();
-
+        
         hideChatTyping();
+
+        if (res.status === 401) {
+            handleSessionExpired();
+            if (desktop) addDesktopMsg('Your session has expired. Please sign in again.', 'assistant');
+            else addChatMsg('Your session has expired. Please sign in again.', 'assistant');
+            return;
+        }
+
+        const data = await res.json();
+        if (!res.ok || !data || data.error || !data.reply) {
+            const errMsg = (data && data.error) ? data.error : 'Server error occurred (' + res.status + ')';
+            toast(errMsg, 'error');
+            if (desktop) addDesktopMsg(errMsg, 'assistant');
+            else addChatMsg(errMsg, 'assistant');
+            return;
+        }
+
         await renderStaggeredReply(data.reply, data.emotion, desktop, data.tts_text);
     } catch (e) {
         hideChatTyping();
+        const errTxt = 'Network or server error: ' + (e.message || 'Please check your connection');
+        toast(errTxt, 'error');
         if (desktop) {
-            addDesktopMsg('Network or server error. Please try again.', 'assistant');
+            addDesktopMsg(errTxt, 'assistant');
         } else {
-            addChatMsg('Network error. Please try again.', 'assistant');
+            addChatMsg(errTxt, 'assistant');
         }
     }
 }
@@ -4116,10 +4138,27 @@ async function sendVoiceChat(msg) {
     try {
         const res = await fetch('/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken || '' },
+            headers: { 
+                'Content-Type': 'application/json', 
+                'X-Session-Token': sessionToken || '',
+                'Authorization': 'Bearer ' + (sessionToken || '')
+            },
             body: JSON.stringify({ message: msg })
         });
+
+        if (res.status === 401) {
+            handleSessionExpired();
+            setVoiceUIState('idle');
+            return;
+        }
+
         const data = await res.json();
+        if (!res.ok || !data || data.error || !data.reply) {
+            toast((data && data.error) || 'Voice chat error occurred.', 'error');
+            setVoiceUIState('idle');
+            return;
+        }
+
         setVoiceUIState('speaking');
 
         const msgs = Array.isArray(data.reply) ? data.reply : [data.reply];
@@ -4127,7 +4166,7 @@ async function sendVoiceChat(msg) {
 
         speakText(data.tts_text || fullText, data.emotion);
     } catch (e) {
-        toast('Network error during voice chat.', 'error');
+        toast('Network error during voice chat: ' + e.message, 'error');
         setVoiceUIState('idle');
     }
 }

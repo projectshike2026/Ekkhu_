@@ -111,6 +111,18 @@ def load_config(force_reload=False):
     if _CONFIG_CACHE is not None and not force_reload:
         return _CONFIG_CACHE
 
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if 'invite_code' not in data: data['invite_code'] = 'EKKU2025'
+            if 'users' not in data: data['users'] = []
+            _CONFIG_CACHE = data
+            return _CONFIG_CACHE
+        except Exception as e:
+            print("[CONFIG] Failed to read local users file:", e)
+
+    # Fallback to Turso if local file missing on fresh container
     if os.getenv("TURSO_DATABASE_URL"):
         try:
             conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
@@ -120,25 +132,15 @@ def load_config(force_reload=False):
             row = c.fetchone()
             if row:
                 _CONFIG_CACHE = json.loads(row[0] if isinstance(row, (tuple, list)) else row['value'])
+                with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(_CONFIG_CACHE, f, indent=2)
                 return _CONFIG_CACHE
         except Exception as e:
-            print("[TURSO] Failed to load config:", e)
-        _CONFIG_CACHE = DEFAULT_CONFIG.copy()
-        return _CONFIG_CACHE
+            print("[TURSO] Failed to load config from cloud:", e)
 
-    if not os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'w') as f:
-            json.dump(DEFAULT_CONFIG, f, indent=2)
-        _CONFIG_CACHE = DEFAULT_CONFIG.copy()
-        return _CONFIG_CACHE
-    with open(USERS_FILE) as f:
-        data = json.load(f)
-    # Handle old 5-user format gracefully
-    if 'invite_code' not in data:
-        data['invite_code'] = 'EKKU2025'
-    if 'users' not in data:
-        data['users'] = []
-    _CONFIG_CACHE = data
+    with open(USERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(DEFAULT_CONFIG, f, indent=2)
+    _CONFIG_CACHE = DEFAULT_CONFIG.copy()
     return _CONFIG_CACHE
 
 def load_users(force_reload=False):
@@ -147,19 +149,10 @@ def load_users(force_reload=False):
 def save_config(cfg):
     global _CONFIG_CACHE
     _CONFIG_CACHE = cfg
-    if os.getenv("TURSO_DATABASE_URL"):
-        try:
-            conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
-            c = conn.cursor()
-            c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
-            c.execute("INSERT INTO global_store (key, value) VALUES ('users_config', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(cfg),))
-            conn.commit()
-            return
-        except Exception as e:
-            print("[TURSO] Failed to save config:", e)
-            
-    with open(USERS_FILE, 'w') as f:
+    with open(USERS_FILE, 'w', encoding='utf-8') as f:
         json.dump(cfg, f, indent=2)
+    if 'TURSO_SYNC' in globals():
+        TURSO_SYNC.trigger_async_push('global')
 
 def save_users_data(users):
     cfg = load_config()
@@ -200,6 +193,15 @@ def load_sessions(force_reload=False):
     if _SESSIONS_CACHE is not None and not force_reload:
         return _SESSIONS_CACHE
     
+    if os.path.exists(SESSIONS_FILE):
+        try:
+            with open(SESSIONS_FILE, 'r', encoding='utf-8') as f:
+                _SESSIONS_CACHE = json.load(f)
+            return _SESSIONS_CACHE
+        except Exception:
+            pass
+
+    # Fallback to Turso if local file missing on fresh container
     if os.getenv("TURSO_DATABASE_URL"):
         try:
             conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
@@ -209,40 +211,25 @@ def load_sessions(force_reload=False):
             row = c.fetchone()
             if row:
                 _SESSIONS_CACHE = json.loads(row[0] if isinstance(row, (tuple, list)) else row['value'])
+                with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(_SESSIONS_CACHE, f, indent=2)
                 return _SESSIONS_CACHE
         except Exception as e:
-            print("[TURSO] Failed to load sessions:", e)
-        _SESSIONS_CACHE = {}
-        return _SESSIONS_CACHE
+            print("[TURSO] Failed to load sessions from cloud:", e)
 
-    if not os.path.exists(SESSIONS_FILE):
-        _SESSIONS_CACHE = {}
-        return _SESSIONS_CACHE
-    try:
-        with open(SESSIONS_FILE) as f:
-            _SESSIONS_CACHE = json.load(f)
-    except Exception:
-        _SESSIONS_CACHE = {}
+    _SESSIONS_CACHE = {}
     return _SESSIONS_CACHE
 
 def save_sessions(sessions):
     global _SESSIONS_CACHE
     _SESSIONS_CACHE = sessions
-    if os.getenv("TURSO_DATABASE_URL"):
-        try:
-            conn = TursoConnection(os.getenv("TURSO_DATABASE_URL"), os.getenv("TURSO_AUTH_TOKEN"), "global")
-            c = conn.cursor()
-            c.execute("CREATE TABLE IF NOT EXISTS global_store (key TEXT PRIMARY KEY, value TEXT)")
-            c.execute("INSERT INTO global_store (key, value) VALUES ('active_sessions', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(sessions),))
-            conn.commit()
-            return
-        except Exception as e:
-            print("[TURSO] Failed to save sessions:", e)
     try:
-        with open(SESSIONS_FILE, 'w') as f:
+        with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
             json.dump(sessions, f, indent=2)
     except Exception as e:
         print("[SESSIONS] Failed to write sessions file:", e)
+    if 'TURSO_SYNC' in globals():
+        TURSO_SYNC.trigger_async_push('global')
 
 def create_session(user_id, name, color):
     token = secrets.token_urlsafe(32)
