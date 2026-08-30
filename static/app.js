@@ -34,6 +34,8 @@ let pomoSecondsLeft = 25 * 60;
 let pomoStopwatchSeconds = 0;   // Count-up seconds for stopwatch mode
 let pomoCustomMinutes = 30;     // Custom timer minutes
 let pomoIsRunning = false;
+let pomoTargetEndTime = null;   // Absolute timestamp (ms) when current timer countdown ends
+let pomoWorker = null;          // Dedicated background Web Worker ticker
 // Multi-cycle extras
 let pomoCycles = 1;             // 1 | 2 | 3
 let pomoCyclesDone = 0;         // cycles completed this session
@@ -2412,6 +2414,56 @@ function openTaskModal() {
 // ════════════════════════════════════════════════════════════════
 let latestPABriefing = null;
 
+// ── Web Worker Drift-Free Background Ticker Engine ────────────────
+function initPomoWorker() {
+    if (pomoWorker) return;
+    try {
+        const workerScript = `
+            let timerId = null;
+            self.onmessage = function(e) {
+                if (e.data === 'start') {
+                    if (timerId) clearInterval(timerId);
+                    timerId = setInterval(function() {
+                        self.postMessage('tick');
+                    }, 1000);
+                } else if (e.data === 'stop') {
+                    if (timerId) {
+                        clearInterval(timerId);
+                        timerId = null;
+                    }
+                }
+            };
+        `;
+        const blob = new Blob([workerScript], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(blob);
+        pomoWorker = new Worker(workerUrl);
+        pomoWorker.onmessage = function(e) {
+            if (e.data === 'tick') {
+                timerTick();
+            }
+        };
+    } catch (e) {
+        console.debug('[Timer] Web Worker initialization fallback to interval:', e);
+    }
+}
+
+function startPomoWorker() {
+    initPomoWorker();
+    if (pomoWorker) {
+        try {
+            pomoWorker.postMessage('start');
+        } catch (e) {}
+    }
+}
+
+function stopPomoWorker() {
+    if (pomoWorker) {
+        try {
+            pomoWorker.postMessage('stop');
+        } catch (e) {}
+    }
+}
+
 // ── Real-Time Timestamp Persistence Engine (Local + Cloud Database Sync) ──────
 let _lastSyncTimerTimestamp = 0;
 
@@ -2421,7 +2473,7 @@ async function saveTimerPersistence(immediateCloudSync = false) {
         return;
     }
     const startTimeMs = pomoSessionStart ? pomoSessionStart.getTime() : (Date.now() - (pomoStopwatchSeconds * 1000));
-    const targetEndMs = pomoMode === 'stopwatch' ? 0 : (Date.now() + (pomoSecondsLeft * 1000));
+    const targetEndMs = pomoMode === 'stopwatch' ? 0 : (pomoTargetEndTime || (Date.now() + (pomoSecondsLeft * 1000)));
     const state = {
         mode: pomoMode,
         task: pomoTaskLabel,
@@ -2525,18 +2577,18 @@ async function restoreTimerPersistence() {
 
         if (!state) return;
 
-        pomoMode = state.mode || 'focus';
+        const savedMode = state.mode || 'focus';
         pomoTaskLabel = state.task || 'Academic Deep Work';
         pomoCustomMinutes = state.customMins || 25;
         pomoCycles = state.cycles || 1;
-        pomoCyclesDone = state.cyclesDone || 0;
+        const savedCyclesDone = state.cyclesDone || 0;
 
         const mInp = document.getElementById('pomo-task-label');
         const cInp = document.getElementById('pomo-task-label-card');
         if (mInp) mInp.value = pomoTaskLabel;
         if (cInp) cInp.value = pomoTaskLabel;
 
-        if (pomoMode === 'stopwatch') {
+        if (savedMode === 'stopwatch') {
             const startTime = state.stopwatchStartTime || (state.sessionStartIso ? new Date(state.sessionStartIso).getTime() : Date.now());
             pomoSessionStart = new Date(startTime);
             const elapsed = Math.max(0, Math.round((Date.now() - startTime) / 1000));
@@ -2546,22 +2598,27 @@ async function restoreTimerPersistence() {
             console.log(`[Timer] Restored active stopwatch: ${elapsed}s (${(elapsed/3600).toFixed(2)} hrs elapsed)`);
         } else {
             pomoSessionStart = state.sessionStartIso ? new Date(state.sessionStartIso) : new Date();
-            const remaining = Math.round(((state.targetEndTime || Date.now()) - Date.now()) / 1000);
+            const targetTime = state.targetEndTime || (Date.now() + (25 * 60 * 1000));
+            const remaining = Math.round((targetTime - Date.now()) / 1000);
             if (remaining > 0) {
                 pomoSecondsLeft = remaining;
-                if (pomoMode === 'custom') {
-                    setPomodoroMode('custom');
+                pomoTargetEndTime = targetTime;
+                pomoCyclesDone = savedCyclesDone;
+                setPomodoroMode(savedMode);
+                pomoSecondsLeft = remaining;
+                pomoTargetEndTime = targetTime;
+                pomoCyclesDone = savedCyclesDone;
+                if (savedMode === 'custom') {
                     setCustomMinutes(pomoCustomMinutes);
                     pomoSecondsLeft = remaining;
-                } else {
-                    setPomodoroMode(pomoMode);
-                    pomoSecondsLeft = remaining;
+                    pomoTargetEndTime = targetTime;
                 }
                 startPomodoroTimer(false);
                 console.log(`[Timer] Restored active timer: ${remaining}s left`);
             } else {
                 clearTimerPersistence();
                 pomoSecondsLeft = 0;
+                pomoTargetEndTime = null;
                 startSoftAlarm();
                 updatePomodoroDisplay();
             }
@@ -2676,7 +2733,13 @@ function setPomodoroMode(mode) {
     stopSoftAlarm();
     pomoMode = mode;
     pomoIsRunning = false;
-    clearInterval(pomoTimer);
+    stopPomoWorker();
+    if (pomoTimer) {
+        clearInterval(pomoTimer);
+        pomoTimer = null;
+    }
+    pomoTargetEndTime = null;
+    pomoSessionStart = null;
 
     const breakGuide = document.getElementById('pomo-break-guide');
     const customSel = document.getElementById('pomo-custom-selector');
@@ -2733,6 +2796,11 @@ function setCustomMinutes(mins) {
     playHaptic('tap');
     pomoCustomMinutes = Math.min(Math.max(val, 1), 360);
     pomoSecondsLeft = pomoCustomMinutes * 60;
+    if (pomoIsRunning) {
+        pomoTargetEndTime = Date.now() + (pomoSecondsLeft * 1000);
+    } else {
+        pomoTargetEndTime = null;
+    }
 
     const lbl = document.getElementById('pomo-custom-duration-label');
     if (lbl) lbl.textContent = `${pomoCustomMinutes} Minutes`;
@@ -2753,7 +2821,12 @@ function setPomoCycles(n) {
     pomoCyclesDone = 0;
     pomoSecondsLeft = 25 * 60;
     pomoIsRunning = false;
-    clearInterval(pomoTimer);
+    stopPomoWorker();
+    if (pomoTimer) {
+        clearInterval(pomoTimer);
+        pomoTimer = null;
+    }
+    pomoTargetEndTime = null;
 
     // Update cycle selector buttons
     [1,2,3].forEach(i => {
@@ -2786,6 +2859,113 @@ function togglePomodoroTimer() {
     }
 }
 
+function timerTick() {
+    if (!pomoIsRunning) return;
+
+    if (pomoMode === 'stopwatch') {
+        // Count up based on true elapsed real-world time (drift-free across OS sleep/tab throttling)
+        if (pomoSessionStart) {
+            pomoStopwatchSeconds = Math.max(0, Math.floor((Date.now() - pomoSessionStart.getTime()) / 1000));
+        } else {
+            pomoStopwatchSeconds++;
+        }
+        saveTimerPersistence(false);
+        updatePomodoroDisplay();
+    } else {
+        // Countdown timer: strictly compute remaining seconds from absolute wall-clock target
+        if (!pomoTargetEndTime) {
+            pomoTargetEndTime = Date.now() + (pomoSecondsLeft * 1000);
+        }
+
+        const remaining = Math.round((pomoTargetEndTime - Date.now()) / 1000);
+
+        if (remaining > 0) {
+            pomoSecondsLeft = remaining;
+            saveTimerPersistence(false);
+            updatePomodoroDisplay();
+        } else {
+            pomoSecondsLeft = 0;
+            pomoTargetEndTime = null;
+            saveTimerPersistence(false);
+            updatePomodoroDisplay();
+            handleTimerComplete();
+        }
+    }
+}
+
+function handleTimerComplete() {
+    if (pomoMode === 'focus') {
+        pomoCyclesDone++;
+        if (pomoCyclesDone < pomoCycles) {
+            pomoSecondsLeft = 25 * 60;
+            pomoTargetEndTime = Date.now() + (25 * 60 * 1000);
+            toast(`✅ Cycle ${pomoCyclesDone} done! Starting cycle ${pomoCyclesDone + 1}…`, 'success');
+            triggerBrowserNotification('Ekkhu Focus: Cycle Complete! ✅', `Cycle ${pomoCyclesDone} finished. Starting cycle ${pomoCyclesDone + 1} (${pomoTaskLabel || 'Focus'})`);
+            requestPABriefing('cycle_done');
+            saveTimerPersistence(true);
+            updatePomodoroDisplay();
+            updateCycleProgressDots();
+            return;
+        } else {
+            const totalMins = pomoCyclesDone * 25;
+            pomoIsRunning = false;
+            stopPomoWorker();
+            if (pomoTimer) {
+                clearInterval(pomoTimer);
+                pomoTimer = null;
+            }
+            clearTimerPersistence();
+            startSoftAlarm();
+            triggerBrowserNotification('Ekkhu Focus Complete! 🎉', `All ${pomoCycles} cycle${pomoCycles > 1 ? 's' : ''} completed (${totalMins}m of deep work)!`);
+            toast(`🎉 All ${pomoCycles} cycle${pomoCycles > 1 ? 's' : ''} complete! ${totalMins} minutes of deep focus!`, 'success');
+            logFocusSession();
+            requestPABriefing('session_complete');
+            pomoSessionStart = null;
+            pomoTargetEndTime = null;
+            pomoCyclesDone = 0;
+            pomoSecondsLeft = 25 * 60;
+            updatePomodoroDisplay();
+            updateCycleProgressDots();
+            setTimeout(() => loadFocusStats(), 800);
+        }
+    } else if (pomoMode === 'custom') {
+        const mins = pomoCustomMinutes;
+        pomoIsRunning = false;
+        stopPomoWorker();
+        if (pomoTimer) {
+            clearInterval(pomoTimer);
+            pomoTimer = null;
+        }
+        clearTimerPersistence();
+        startSoftAlarm();
+        triggerBrowserNotification('Ekkhu Timer Finished! 🎯', `Your ${mins}m timer for "${pomoTaskLabel || 'Custom Sprint'}" is complete!`);
+        toast(`🎯 Custom timer finished! ${mins} minutes logged.`, 'success');
+        logFocusSession(mins);
+        requestPABriefing('session_complete');
+        pomoSessionStart = null;
+        pomoTargetEndTime = null;
+        pomoSecondsLeft = pomoCustomMinutes * 60;
+        updatePomodoroDisplay();
+        setTimeout(() => loadFocusStats(), 800);
+    } else {
+        pomoIsRunning = false;
+        stopPomoWorker();
+        if (pomoTimer) {
+            clearInterval(pomoTimer);
+            pomoTimer = null;
+        }
+        clearTimerPersistence();
+        startSoftAlarm();
+        triggerBrowserNotification('Ekkhu Break Finished! ⏰', 'Break time is over. Ready for your next focus session?');
+        toast(`⏰ Break time finished! Ready to focus?`, 'info');
+        requestPABriefing('start');
+        pomoSessionStart = null;
+        pomoTargetEndTime = null;
+        pomoSecondsLeft = (pomoMode === 'short' ? 5 : 15) * 60;
+        updatePomodoroDisplay();
+    }
+}
+
 function startPomodoroTimer(isFresh = true) {
     stopSoftAlarm();
     // Capture task label from input
@@ -2806,12 +2986,24 @@ function startPomodoroTimer(isFresh = true) {
         if (isFresh || !pomoSessionStart) {
             pomoSessionStart = new Date(Date.now() - (pomoStopwatchSeconds * 1000));
         }
+        pomoTargetEndTime = null;
     } else {
-        if (isFresh && !pomoSessionStart) pomoSessionStart = new Date();
+        if (isFresh || !pomoSessionStart) {
+            pomoSessionStart = new Date();
+        }
+        // Anchor to absolute wall-clock target timestamp
+        if (isFresh || !pomoTargetEndTime) {
+            pomoTargetEndTime = Date.now() + (pomoSecondsLeft * 1000);
+        }
     }
 
     pomoIsRunning = true;
-    clearInterval(pomoTimer);
+    if (pomoTimer) clearInterval(pomoTimer);
+
+    // Dedicated background Web Worker ticker + fallback main-thread interval
+    startPomoWorker();
+    pomoTimer = setInterval(timerTick, 1000);
+
     saveTimerPersistence(true);
 
     // Trigger Ekkhu PA Kickoff Briefing
@@ -2819,72 +3011,22 @@ function startPomodoroTimer(isFresh = true) {
         requestPABriefing('start');
     }
 
-    pomoTimer = setInterval(() => {
-        if (pomoMode === 'stopwatch') {
-            // Count up based on true elapsed real-world time (drift-free across OS sleep/tab throttling)
-            if (pomoSessionStart) {
-                pomoStopwatchSeconds = Math.max(0, Math.floor((Date.now() - pomoSessionStart.getTime()) / 1000));
-            } else {
-                pomoStopwatchSeconds++;
-            }
-            saveTimerPersistence(false);
-            updatePomodoroDisplay();
-        } else {
-            // Count down in focus / custom / break modes
-            if (pomoSecondsLeft > 0) {
-                pomoSecondsLeft--;
-                saveTimerPersistence(false);
-                updatePomodoroDisplay();
-            } else {
-                clearInterval(pomoTimer);
-                pomoIsRunning = false;
-                clearTimerPersistence();
-                startSoftAlarm();
-                updateCycleProgressDots();
-
-                if (pomoMode === 'focus') {
-                    pomoCyclesDone++;
-                    if (pomoCyclesDone < pomoCycles) {
-                        pomoSecondsLeft = 25 * 60;
-                        toast(`✅ Cycle ${pomoCyclesDone} done! Starting cycle ${pomoCyclesDone + 1}…`, 'success');
-                        requestPABriefing('cycle_done');
-                        setTimeout(() => startPomodoroTimer(true), 3000);
-                    } else {
-                        const totalMins = pomoCyclesDone * 25;
-                        toast(`🎉 All ${pomoCycles} cycle${pomoCycles>1?'s':''} complete! ${totalMins} minutes of deep focus!`, 'success');
-                        logFocusSession();
-                        requestPABriefing('session_complete');
-                        pomoSessionStart = null;
-                        pomoCyclesDone = 0;
-                        pomoSecondsLeft = 25 * 60;
-                        updatePomodoroDisplay();
-                        updateCycleProgressDots();
-                        setTimeout(() => loadFocusStats(), 800);
-                    }
-                } else if (pomoMode === 'custom') {
-                    toast(`🎯 Custom timer finished! ${pomoCustomMinutes} minutes logged.`, 'success');
-                    logFocusSession(pomoCustomMinutes);
-                    requestPABriefing('session_complete');
-                    pomoSessionStart = null;
-                    pomoSecondsLeft = pomoCustomMinutes * 60;
-                    updatePomodoroDisplay();
-                    setTimeout(() => loadFocusStats(), 800);
-                } else {
-                    toast(`⏰ Break time finished! Ready to focus?`, 'info');
-                    requestPABriefing('start');
-                    updatePomodoroDisplay();
-                }
-            }
-        }
-    }, 1000);
-
     updatePomodoroDisplay();
     updateCycleProgressDots();
 }
 
 function pausePomodoroTimer() {
     pomoIsRunning = false;
-    clearInterval(pomoTimer);
+    stopPomoWorker();
+    if (pomoTimer) {
+        clearInterval(pomoTimer);
+        pomoTimer = null;
+    }
+    // Calculate remaining seconds cleanly before clearing target
+    if (pomoMode !== 'stopwatch' && pomoTargetEndTime) {
+        pomoSecondsLeft = Math.max(0, Math.round((pomoTargetEndTime - Date.now()) / 1000));
+    }
+    pomoTargetEndTime = null;
     clearTimerPersistence();
     stopSoftAlarm();
     updatePomodoroDisplay();
@@ -2894,7 +3036,12 @@ function resetPomodoroTimer() {
     playHaptic('tap');
     stopSoftAlarm();
     pomoIsRunning = false;
-    clearInterval(pomoTimer);
+    stopPomoWorker();
+    if (pomoTimer) {
+        clearInterval(pomoTimer);
+        pomoTimer = null;
+    }
+    pomoTargetEndTime = null;
     clearTimerPersistence();
     if (pomoMode === 'focus') {
         pomoSecondsLeft = 25 * 60;
@@ -2902,6 +3049,10 @@ function resetPomodoroTimer() {
         pomoSecondsLeft = pomoCustomMinutes * 60;
     } else if (pomoMode === 'stopwatch') {
         pomoStopwatchSeconds = 0;
+    } else if (pomoMode === 'short') {
+        pomoSecondsLeft = 5 * 60;
+    } else if (pomoMode === 'long') {
+        pomoSecondsLeft = 15 * 60;
     }
     pomoCyclesDone = 0;
     pomoSessionStart = null;
@@ -2952,6 +3103,13 @@ function updatePomodoroDisplay() {
         const el = document.getElementById(id);
         if (el) el.textContent = timeStr;
     });
+
+    // Update document title so user can see live countdown in their browser tab
+    if (pomoIsRunning) {
+        document.title = `(${timeStr}) Ekkhu • ${pomoTaskLabel || (pomoMode === 'stopwatch' ? 'Stopwatch' : 'Focus')}`;
+    } else {
+        document.title = 'Ekkhu • Personal AI Copilot';
+    }
 
     const quoteEl = document.getElementById('pomo-modal-quote');
     if (quoteEl) {
@@ -5818,15 +5976,29 @@ function triggerBrowserNotification(title, body) {
     }
 }
 
-// Tab Focus & Visibility Proactive Triggers
+// Tab Focus & Visibility Proactive Triggers & Real-Time Timer Sync
 document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && currentUserId && sessionToken) {
-        checkProactiveNudge();
+    if (!document.hidden) {
+        if (pomoIsRunning) {
+            timerTick();
+        }
+        if (currentUserId && sessionToken) {
+            checkProactiveNudge();
+        }
     }
 });
 
 window.addEventListener('focus', () => {
+    if (pomoIsRunning) {
+        timerTick();
+    }
     if (currentUserId && sessionToken) {
         checkProactiveNudge();
+    }
+});
+
+window.addEventListener('pageshow', () => {
+    if (pomoIsRunning) {
+        timerTick();
     }
 });
