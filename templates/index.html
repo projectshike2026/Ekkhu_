@@ -249,6 +249,11 @@
     border-color: var(--primary);
     z-index: 50;
   }
+  #mob-dynamic-island.island-hidden {
+    opacity: 0 !important;
+    transform: translate(-50%, -45px) scale(0.85) !important;
+    pointer-events: none !important;
+  }
 
   /* ═════════════════════════════════════════════════════════════════
      🫧 MOBILE FLOATING AI COMPANION BUBBLE
@@ -3347,6 +3352,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="{{ url_for('static', filename='app.js') }}?v=3.4.0"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=3.4.1"></script>
 </body>
 </html>

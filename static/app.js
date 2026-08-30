@@ -605,6 +605,7 @@ function bootApp() {
     }
     loadSettingsUserList();
     initPomodoroDisplay();
+    scheduleDynamicIslandAutoHide(3000);
 
     setInterval(() => {
         if (currentUserId) updateNextClassCountdown();
@@ -728,12 +729,37 @@ function toast(msg, type = 'info') {
 // ════════════════════════════════════════════════════════════════
 //  🏝️ MOBILE "DYNAMIC ISLAND" LIVE CAPSULE HUD ENGINE
 // ════════════════════════════════════════════════════════════════
+let islandAutoHideTimer = null;
+
+function scheduleDynamicIslandAutoHide(delayMs = 3000) {
+    if (islandAutoHideTimer) clearTimeout(islandAutoHideTimer);
+    const island = document.getElementById('mob-dynamic-island');
+    if (!island) return;
+
+    islandAutoHideTimer = setTimeout(() => {
+        // Auto-hide the island if it is not currently expanded
+        if (!isIslandExpanded) {
+            island.classList.add('island-hidden');
+        }
+    }, delayMs);
+}
+
+function showDynamicIslandTemporarily(delayMs = 3500) {
+    const island = document.getElementById('mob-dynamic-island');
+    if (!island) return;
+    island.classList.remove('island-hidden');
+    scheduleDynamicIslandAutoHide(delayMs);
+}
+
 function toggleDynamicIsland(e, forceClose = false) {
     if (e) e.stopPropagation();
     const island = document.getElementById('mob-dynamic-island');
     const compact = document.getElementById('island-compact-view');
     const expanded = document.getElementById('island-expanded-view');
     if (!island) return;
+
+    if (islandAutoHideTimer) clearTimeout(islandAutoHideTimer);
+    island.classList.remove('island-hidden');
 
     if (forceClose || isIslandExpanded) {
         isIslandExpanded = false;
@@ -742,6 +768,7 @@ function toggleDynamicIsland(e, forceClose = false) {
         if (compact) compact.classList.remove('hidden');
         if (expanded) expanded.classList.add('hidden');
         playHaptic('tap');
+        scheduleDynamicIslandAutoHide(2500);
     } else {
         isIslandExpanded = true;
         island.classList.remove('compact');
