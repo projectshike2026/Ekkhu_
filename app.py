@@ -1955,6 +1955,61 @@ def get_user_context(user_id, conn=None):
         total_expense = sum(b['amount'] for b in budget if b['type'] == 'expense')
         total_income = sum(b['amount'] for b in budget if b['type'] == 'income')
         ctx += f"- Total Income: {total_income} BDT, Total Expense: {total_expense} BDT\n"
+        recent_budget = sorted(budget, key=lambda b: b['date'], reverse=True)[:8]
+        if recent_budget:
+            ctx += "- Recent Transactions (newest first):\n"
+            for b in recent_budget:
+                btype = b['type']
+                desc = decrypt_text(b['desc']) if b.get('desc') else 'No description'
+                ctx += f"  * [{b['date']}] {btype.upper()} {b['amount']} BDT — {desc}\n"
+    else:
+        ctx += "- No budget transactions recorded this month.\n"
+
+    # Active timer / stopwatch context
+    try:
+        timer_row = c.execute('SELECT * FROM active_timer_state WHERE id = 1').fetchone()
+        if timer_row and timer_row['is_running']:
+            ctx += "\n⏱️ ACTIVE TIMER/STOPWATCH STATE:\n"
+            t_mode = timer_row['mode'] or 'unknown'
+            t_task = timer_row['task'] or 'Unknown Task'
+            t_start = timer_row['start_time_ms']
+            elapsed_mins = 0
+            if t_start:
+                elapsed_ms = int(datetime.now().timestamp() * 1000) - int(t_start)
+                elapsed_mins = max(0, round(elapsed_ms / 60000))
+            if t_mode == 'stopwatch':
+                ctx += f"- STOPWATCH IS RUNNING: Task=\"{t_task}\", Elapsed ≈ {elapsed_mins} min\n"
+                ctx += "  * Do NOT start another stopwatch unless user explicitly asks to restart.\n"
+            else:
+                t_end = timer_row['target_end_time_ms']
+                remaining_mins = 0
+                if t_end:
+                    remaining_ms = int(t_end) - int(datetime.now().timestamp() * 1000)
+                    remaining_mins = max(0, round(remaining_ms / 60000))
+                ctx += f"- COUNTDOWN TIMER IS RUNNING: Task=\"{t_task}\", Mode={t_mode}, Remaining ≈ {remaining_mins} min\n"
+                ctx += "  * Do NOT start another timer unless user explicitly asks to start a new/different one.\n"
+        else:
+            ctx += "\n⏱️ No active timer or stopwatch is currently running.\n"
+    except Exception:
+        pass
+
+    # Recent focus/activity sessions (last 5)
+    try:
+        recent_sessions = c.execute(
+            'SELECT task_label, total_minutes, date FROM focus_sessions ORDER BY id DESC LIMIT 5'
+        ).fetchall()
+        if recent_sessions:
+            ctx += "\nRecent Activity / Focus Sessions (last 5):\n"
+            for s in recent_sessions:
+                s_label = s['task_label'] or 'General'
+                s_mins = s['total_minutes'] or 0
+                s_hrs = round(s_mins / 60, 1)
+                ctx += f"  * [{s['date']}] {s_label}: {s_mins}m"
+                if s_hrs >= 1:
+                    ctx += f" ({s_hrs}h)"
+                ctx += "\n"
+    except Exception:
+        pass
 
     # Strict Situational Behavioral Directives
     ctx += "\n══════════════════════════════════════════════════\n"
@@ -1964,7 +2019,7 @@ def get_user_context(user_id, conn=None):
     if is_late_night:
         ctx += "- LATE NIGHT (1AM - 5AM): User is awake very late. Notice the late hour casually and caring-ly ('এত রাতে কি করস রে ভাই? ঘুমা, শরীর খারাপ করবে'). If they are studying, encourage them to wrap up and sleep.\n"
     elif workload_status == "LIGHT_OR_CHILL":
-        ctx += "- LIGHT WORKLOAD: User has almost no urgent work and tomorrow is free/light. Tell them to chill, play games, or relax! E.g. 'কালকে করলেও পারিস, আজ কাজ তেমন নাই তো' or 'কালকে আরামসে রেস্ট নিস, আজকে অল্প একটু থাকলে নামায় ফেল চিল মুডে থাকবি।' Do NOT invent fake emergencies or nag them.\n"
+        ctx += "- LIGHT WORKLOAD: User has almost no urgent work and tomorrow is free/light. Tell them to chill, play games, or relax! E.g. 'কালকে করলেও পারিস, আজ কাজ তেমন নাই তো' or 'কালকে আরামসে রেস্ট নিস, আজকে অল্প একটু থাকলে নামায় ফেল চিল মুডে থাকবি।' Do NOT invent fake emergencies or nag them.\n"
     elif workload_status == "HEAVY_OR_URGENT":
         ctx += "- URGENT / HEAVY WORKLOAD: User has overdue work, a deadline today, or an upcoming exam. Act as a caring, witty, responsible accountability partner. Ask them directly about their progress on specific tasks (e.g. 'ওই কাজটা কি করলি?', 'অ্যাসাইনমেন্ট কতদূর?'). Playfully push them to sit down and finish without slacking off.\n"
     else:
@@ -1977,6 +2032,7 @@ def get_user_context(user_id, conn=None):
         conn.close()
 
     return ctx
+
 
 # ------------------------------------------------------------------
 # Proactive Autonomous Personal Assistant Engine
@@ -3171,7 +3227,6 @@ def chat():
                 if isinstance(data, dict): return data
             except Exception:
                 pass
-
         # 3. If truncated, try auto-closing strings & brackets
         for suffix in [']}', '" ]}', '" }', '}']:
             try:
@@ -3223,14 +3278,47 @@ def chat():
             tts_text = " ".join(reply_data)
 
         # Deterministic Intent Fallback / Reinforcement for Timer/Stopwatch
+        # GUARDS: Only trigger on immediate, imperative, unambiguous commands.
         user_lower = (user_text or "").lower()
-        has_timer_kw = any(w in user_lower for w in ["timer", "টাইমার", "ন্যাপ", "nap", "countdown", "স্টপওয়াচ", "স্টপওয়াচ", "stopwatch", "mnt", "min", "মিনিট", "ঘণ্টা", "hour"])
+        has_timer_kw = any(w in user_lower for w in ["timer", "টাইমার", "ন্যাপ", "nap", "countdown", "স্টপওয়াচ", "stopwatch", "mnt", "min", "মিনিট", "ঘণ্টা", "hour"])
 
-        if has_timer_kw:
+        # Guard 1: Future-intent filter — skip if user is planning for later
+        _future_words = [
+            "কালকে", "আগামীকাল", "কাল ", "পরে", "পরশু", "একটু পর",
+            "পরে করব", "পরিকল্পনা", "ভাবছি", "চিন্তা করছি",
+            "tomorrow", "later", "tonight", "next time", "planning to", "going to", "will set",
+            "will start", "thinking of", "maybe", "would like to", "i'll"
+        ]
+        is_future_intent = any(fw in user_lower for fw in _future_words)
+
+        # Guard 2: Inquiry/question filter — skip if user is asking/verifying
+        _inquiry_words = [
+            "কি চলছে", "চলছে নাকি", "কত মিনিট", "কতক্ষণ",
+            "হয়ে গেছে?", "হইছে?", "করছো?", "করছিস?",
+            "did you", "have you", "is it running", "is there", "how long", "how much time",
+            "is the timer", "check the timer"
+        ]
+        _imperative_overrides = ["চালু করো", "অন করো", "স্টার্ট করো", "start koro", "calu koro", "on koro"]
+        is_inquiry = any(iq in user_lower for iq in _inquiry_words) or (
+            user_lower.strip().endswith("?") and not any(imp in user_lower for imp in _imperative_overrides)
+        )
+
+        # Guard 3: Must have an imperative/command verb for start_timer/start_stopwatch
+        _imperative_verbs = [
+            "চালু করো", "চালু কর", "অন করো", "স্টার্ট করো",
+            "টাইমার দাও", "টাইমার চালু",
+            "countdown start", "timer start", "start koro", "on koro", "calu koro",
+            "শুরু করো", "শুরু কর",
+            "start", "begin", "launch", "run timer"
+        ]
+        has_imperative = any(iv in user_lower for iv in _imperative_verbs)
+
+        if has_timer_kw and not is_future_intent and not is_inquiry:
             has_timer_act = any(a.get("type") in ["start_timer", "start_stopwatch", "stop_timer"] for a in actions if isinstance(a, dict))
             extracted_mins = parse_timer_duration_minutes(user_lower)
 
-            if not has_timer_act and ("timer" in user_lower or "টাইমার" in user_lower or "ন্যাপ" in user_lower or "nap" in user_lower or "mnt" in user_lower or "min" in user_lower or "মিনিট" in user_lower or "countdown" in user_lower):
+            # Only inject start actions when there's a clear imperative command verb
+            if not has_timer_act and has_imperative and ("timer" in user_lower or "টাইমার" in user_lower or "ন্যাপ" in user_lower or "nap" in user_lower or "mnt" in user_lower or "min" in user_lower or "মিনিট" in user_lower or "countdown" in user_lower):
                 if extracted_mins is not None:
                     task_name = "5m Power Nap" if ("ন্যাপ" in user_lower or "nap" in user_lower) else ("Gaming Break" if "game" in user_lower or "গেম" in user_lower else f"{extracted_mins}m Sprint")
                     actions.append({
@@ -3240,18 +3328,23 @@ def chat():
                         "task": task_name,
                         "mode": "custom" if extracted_mins != 25 else "focus"
                     })
-                elif "stopwatch" in user_lower or "স্টপওয়াচ" in user_lower or "স্টপওয়াচ" in user_lower:
+                elif "stopwatch" in user_lower or "স্টপওয়াচ" in user_lower:
                     actions.append({
                         "type": "start_stopwatch",
                         "task": "Activity Sprint",
                         "mode": "stopwatch"
                     })
-                elif "stop" in user_lower or "বন্ধ" in user_lower or "থামাও" in user_lower or "অফ" in user_lower:
+            elif not has_timer_act:
+                # stop_timer — must be explicitly about stopping the timer
+                _stop_signals = ["stop timer", "timer off", "timer stop", "timer বন্ধ", "টাইমার বন্ধ", "টাইমার অফ",
+                                  "stopwatch off", "স্টপওয়াচ বন্ধ", "স্টপওয়াচ অফ",
+                                  "sesh timer off", "timer sesh", "timer shesh", "শেষ টাইমার অফ"]
+                if any(s in user_lower for s in _stop_signals):
                     actions.append({
                         "type": "stop_timer",
                         "task": "Focus Session"
                     })
-            elif has_timer_act and extracted_mins is not None:
+            if has_timer_act and extracted_mins is not None:
                 # Override minutes if LLM defaulted to 25 but user requested specific duration
                 for a in actions:
                     if isinstance(a, dict) and a.get("type") == "start_timer" and a.get("minutes") == 25 and extracted_mins != 25:

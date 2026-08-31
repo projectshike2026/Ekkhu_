@@ -3241,20 +3241,34 @@ function executeClientActions(actions) {
                     pausePomodoroTimer();
                     toast(`🏁 Ekkhu stopped stopwatch. ${timeMsg} recorded for "${task}"!`, 'success');
                 } else if (pomoMode === 'custom') {
-                    loggedMins = pomoCustomMinutes;
+                    // Log actual elapsed, not preset
+                    const presetSecs = (pomoCustomMinutes || 25) * 60;
+                    const elapsedSecs = Math.max(0, presetSecs - (pomoSecondsLeft || 0));
+                    loggedMins = Math.max(1, Math.round(elapsedSecs / 60));
                     logFocusSession(loggedMins);
                     pausePomodoroTimer();
                     toast(`🏁 Ekkhu stopped timer. ${loggedMins} minutes recorded for "${task}"!`, 'success');
                 } else {
-                    loggedMins = (pomoCyclesDone + 1) * 25;
+                    // Focus/Pomodoro: compute elapsed
+                    if (pomoSessionStart) {
+                        const elapsedMs = Date.now() - new Date(pomoSessionStart).getTime();
+                        loggedMins = Math.max(1, Math.round(elapsedMs / 60000));
+                    } else {
+                        const presetSecs = (pomoCyclesDone + 1) * 25 * 60;
+                        const elapsedSecs = Math.max(0, presetSecs - (pomoSecondsLeft || 0));
+                        loggedMins = Math.max(1, Math.round(elapsedSecs / 60));
+                    }
                     logFocusSession(loggedMins);
                     pausePomodoroTimer();
                     toast(`🏁 Ekkhu stopped timer. ${loggedMins} minutes recorded for "${task}"!`, 'success');
                 }
+                clearTimerPersistence();
             } else {
                 toast(`Timer is not running`, 'info');
             }
             playHaptic('pop');
+
+
 
         } else if (atype === 'adjust_focus_session') {
             const task = action.task || 'Sleep Tracking';
@@ -3571,9 +3585,20 @@ async function finishAndSaveSession() {
         }
         loggedMins = Math.max(1, Math.round(pomoStopwatchSeconds / 60));
     } else if (pomoMode === 'custom') {
-        loggedMins = pomoCustomMinutes;
+        // Compute elapsed: preset - remaining
+        const presetSecs = (pomoCustomMinutes || 25) * 60;
+        const elapsedSecs = Math.max(0, presetSecs - (pomoSecondsLeft || 0));
+        loggedMins = Math.max(1, Math.round(elapsedSecs / 60));
     } else {
-        loggedMins = (pomoCyclesDone + 1) * 25;
+        // Focus/Pomodoro: compute elapsed from session start or from remaining
+        if (pomoSessionStart) {
+            const elapsedMs = Date.now() - new Date(pomoSessionStart).getTime();
+            loggedMins = Math.max(1, Math.round(elapsedMs / 60000));
+        } else {
+            const presetSecs = (pomoCyclesDone + 1) * 25 * 60;
+            const elapsedSecs = Math.max(0, presetSecs - (pomoSecondsLeft || 0));
+            loggedMins = Math.max(1, Math.round(elapsedSecs / 60));
+        }
     }
 
     pausePomodoroTimer();
@@ -3586,6 +3611,7 @@ async function finishAndSaveSession() {
     toast(`🏁 Session Done! ${formatted} recorded for "${task}" ✓`, 'success');
     loadFocusStats();
 }
+
 
 let cachedActivityHistory = [];
 let currentActivityCategoryFilter = 'ALL';
@@ -4557,20 +4583,8 @@ function flipFlashcard(cardEl) {
     cardEl.classList.toggle('border-emerald-500', isShowingQ);
 }
 
-async function logFocusSession(customMins = null) {
-    try {
-        const totalMinutes = customMins ? parseInt(customMins, 10) : (pomoCyclesDone * 25);
-        await api('/api/focus/log', 'POST', {
-            task_label: pomoTaskLabel || 'Academic Focus',
-            cycles_planned: pomoCycles || 1,
-            cycles_done: pomoCyclesDone || 1,
-            total_minutes: totalMinutes,
-            started_at: pomoSessionStart ? pomoSessionStart.toISOString() : new Date().toISOString()
-        });
-    } catch(e) {
-        console.warn('[Focus] Could not log session:', e);
-    }
-}
+
+
 
 
 
