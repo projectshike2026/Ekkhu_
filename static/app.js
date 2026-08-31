@@ -2466,6 +2466,7 @@ function stopPomoWorker() {
 
 // ── Real-Time Timestamp Persistence Engine (Local + Cloud Database Sync) ──────
 let _lastSyncTimerTimestamp = 0;
+let _isSyncingActiveTimer = false;
 
 async function saveTimerPersistence(immediateCloudSync = false) {
     if (!pomoIsRunning) {
@@ -2488,9 +2489,9 @@ async function saveTimerPersistence(immediateCloudSync = false) {
         localStorage.setItem('ekkhu_active_timer', JSON.stringify(state));
     } catch(e) {}
 
-    // Cloud Database Persistence (saves immediately on start and throttled every 25s)
+    // Cloud Database Persistence (saves immediately on start and throttled every 20s)
     const now = Date.now();
-    if (immediateCloudSync || (now - _lastSyncTimerTimestamp > 25000)) {
+    if (immediateCloudSync || (now - _lastSyncTimerTimestamp > 20000)) {
         _lastSyncTimerTimestamp = now;
         try {
             fetch('/api/focus/active_timer', {
@@ -2505,7 +2506,8 @@ async function saveTimerPersistence(immediateCloudSync = false) {
                     start_time_ms: startTimeMs,
                     target_end_time_ms: targetEndMs,
                     is_running: true
-                })
+                }),
+                keepalive: true
             }).catch(() => {});
         } catch(e) {}
     }
@@ -2518,7 +2520,8 @@ async function clearTimerPersistence() {
     try {
         fetch('/api/focus/active_timer', {
             method: 'DELETE',
-            headers: { 'X-Session-Token': sessionToken || '' }
+            headers: { 'X-Session-Token': sessionToken || '' },
+            keepalive: true
         }).catch(() => {});
     } catch(e) {}
 }
@@ -2536,7 +2539,8 @@ async function logFocusSession(customMins) {
                 cycles_done: pomoCyclesDone || 1,
                 total_minutes: mins,
                 started_at: pomoSessionStart ? pomoSessionStart.toISOString() : new Date().toISOString()
-            })
+            }),
+            keepalive: true
         });
         clearTimerPersistence();
         if (typeof loadFocusStats === 'function') loadFocusStats();
@@ -2545,88 +2549,162 @@ async function logFocusSession(customMins) {
     }
 }
 
-async function restoreTimerPersistence() {
+async function syncActiveTimerWithServer() {
+    if (_isSyncingActiveTimer) return;
+    const token = sessionToken || localStorage.getItem('ekkhu_session_token');
+    if (!token) return;
+
+    _isSyncingActiveTimer = true;
     try {
-        // Priority 1: Check localStorage first for instant rendering
-        let state = null;
-        const raw = localStorage.getItem('ekkhu_active_timer');
-        if (raw) {
-            try { state = JSON.parse(raw); } catch(e) {}
-        }
+        const sRes = await fetch('/api/focus/active_timer', {
+            headers: { 'X-Session-Token': token }
+        });
+        const sData = await sRes.json();
 
-        // Priority 2: Check server database (for cross-device / after phone or laptop reboot)
-        try {
-            const sRes = await fetch('/api/focus/active_timer', {
-                headers: { 'X-Session-Token': sessionToken || '' }
-            });
-            const sData = await sRes.json();
-            if (sData && sData.active) {
-                state = {
-                    mode: sData.mode,
-                    task: sData.task,
-                    customMins: sData.custom_minutes,
-                    cycles: sData.cycles,
-                    cyclesDone: sData.cycles_done,
-                    targetEndTime: sData.target_end_time_ms,
-                    stopwatchStartTime: sData.start_time_ms,
-                    sessionStartIso: sData.updated_at
-                };
-                localStorage.setItem('ekkhu_active_timer', JSON.stringify(state));
-            }
-        } catch(se) {}
+        if (sData && sData.active) {
+            const serverMode = sData.mode || 'focus';
+            const serverTask = sData.task || 'Focus Sprint';
+            const serverStartMs = Number(sData.start_time_ms) || Date.now();
+            const serverTargetEndMs = Number(sData.target_end_time_ms) || 0;
+            const customMins = Number(sData.custom_minutes) || 25;
+            const cycles = Number(sData.cycles) || 1;
+            const cyclesDone = Number(sData.cycles_done) || 0;
 
-        if (!state) return;
+            pomoTaskLabel = serverTask;
+            const mInp = document.getElementById('pomo-task-label');
+            const cInp = document.getElementById('pomo-task-label-card');
+            if (mInp) mInp.value = serverTask;
+            if (cInp) cInp.value = serverTask;
 
-        const savedMode = state.mode || 'focus';
-        pomoTaskLabel = state.task || 'Academic Deep Work';
-        pomoCustomMinutes = state.customMins || 25;
-        pomoCycles = state.cycles || 1;
-        const savedCyclesDone = state.cyclesDone || 0;
+            setPomodoroMode(serverMode);
 
-        const mInp = document.getElementById('pomo-task-label');
-        const cInp = document.getElementById('pomo-task-label-card');
-        if (mInp) mInp.value = pomoTaskLabel;
-        if (cInp) cInp.value = pomoTaskLabel;
-
-        if (savedMode === 'stopwatch') {
-            const startTime = state.stopwatchStartTime || (state.sessionStartIso ? new Date(state.sessionStartIso).getTime() : Date.now());
-            pomoSessionStart = new Date(startTime);
-            const elapsed = Math.max(0, Math.round((Date.now() - startTime) / 1000));
-            pomoStopwatchSeconds = elapsed;
-            setPomodoroMode('stopwatch');
-            startPomodoroTimer(false);
-            console.log(`[Timer] Restored active stopwatch: ${elapsed}s (${(elapsed/3600).toFixed(2)} hrs elapsed)`);
-        } else {
-            pomoSessionStart = state.sessionStartIso ? new Date(state.sessionStartIso) : new Date();
-            const targetTime = state.targetEndTime || (Date.now() + (25 * 60 * 1000));
-            const remaining = Math.round((targetTime - Date.now()) / 1000);
-            if (remaining > 0) {
-                pomoSecondsLeft = remaining;
-                pomoTargetEndTime = targetTime;
-                pomoCyclesDone = savedCyclesDone;
-                setPomodoroMode(savedMode);
-                pomoSecondsLeft = remaining;
-                pomoTargetEndTime = targetTime;
-                pomoCyclesDone = savedCyclesDone;
-                if (savedMode === 'custom') {
-                    setCustomMinutes(pomoCustomMinutes);
-                    pomoSecondsLeft = remaining;
-                    pomoTargetEndTime = targetTime;
-                }
-                startPomodoroTimer(false);
-                console.log(`[Timer] Restored active timer: ${remaining}s left`);
-            } else {
-                clearTimerPersistence();
-                pomoSecondsLeft = 0;
+            if (serverMode === 'stopwatch') {
+                pomoSessionStart = new Date(serverStartMs);
                 pomoTargetEndTime = null;
-                startSoftAlarm();
+                const elapsedSecs = Math.max(0, Math.floor((Date.now() - serverStartMs) / 1000));
+                pomoStopwatchSeconds = elapsedSecs;
+            } else {
+                pomoSessionStart = new Date(serverStartMs);
+                pomoTargetEndTime = serverTargetEndMs || (serverStartMs + customMins * 60 * 1000);
+                pomoCycles = cycles;
+                pomoCyclesDone = cyclesDone;
+                pomoCustomMinutes = customMins;
+                if (serverMode === 'custom') {
+                    setCustomMinutes(customMins);
+                }
+                const remainingSecs = Math.round((pomoTargetEndTime - Date.now()) / 1000);
+                if (remainingSecs <= 0) {
+                    pomoIsRunning = false;
+                    stopPomoWorker();
+                    if (pomoTimer) {
+                        clearInterval(pomoTimer);
+                        pomoTimer = null;
+                    }
+                    pomoSecondsLeft = 0;
+                    pomoTargetEndTime = null;
+                    clearTimerPersistence();
+                    updatePomodoroDisplay();
+                    _isSyncingActiveTimer = false;
+                    return;
+                }
+                pomoSecondsLeft = remainingSecs;
+            }
+
+            if (!pomoIsRunning) {
+                pomoIsRunning = true;
+                if (pomoTimer) clearInterval(pomoTimer);
+                startPomoWorker();
+                pomoTimer = setInterval(timerTick, 1000);
+            }
+
+            updatePomodoroDisplay();
+            updateCycleProgressDots();
+
+            // Store authoritative server state in localStorage
+            try {
+                localStorage.setItem('ekkhu_active_timer', JSON.stringify({
+                    mode: serverMode,
+                    task: serverTask,
+                    customMins: customMins,
+                    cycles: cycles,
+                    cyclesDone: cyclesDone,
+                    targetEndTime: pomoTargetEndTime,
+                    stopwatchStartTime: serverStartMs,
+                    sessionStartIso: pomoSessionStart.toISOString()
+                }));
+            } catch(e) {}
+
+        } else {
+            // Server reports NO active running timer
+            if (pomoIsRunning) {
+                console.log('[Timer Sync] Active timer stopped on server. Syncing local state.');
+                pomoIsRunning = false;
+                stopPomoWorker();
+                if (pomoTimer) {
+                    clearInterval(pomoTimer);
+                    pomoTimer = null;
+                }
+                pomoTargetEndTime = null;
+                pomoSessionStart = null;
+                try { localStorage.removeItem('ekkhu_active_timer'); } catch(e) {}
                 updatePomodoroDisplay();
             }
         }
     } catch(e) {
+        console.warn('[Timer Sync] Error syncing active timer:', e);
+    } finally {
+        _isSyncingActiveTimer = false;
+    }
+}
+
+async function restoreTimerPersistence() {
+    try {
+        // Step 1: Render cached state instantly from localStorage for 0ms visual pop
+        const raw = localStorage.getItem('ekkhu_active_timer');
+        if (raw) {
+            try {
+                const state = JSON.parse(raw);
+                if (state) {
+                    const savedMode = state.mode || 'focus';
+                    pomoTaskLabel = state.task || 'Academic Deep Work';
+                    pomoCustomMinutes = state.customMins || 25;
+                    pomoCycles = state.cycles || 1;
+                    pomoCyclesDone = state.cyclesDone || 0;
+
+                    const mInp = document.getElementById('pomo-task-label');
+                    const cInp = document.getElementById('pomo-task-label-card');
+                    if (mInp) mInp.value = pomoTaskLabel;
+                    if (cInp) cInp.value = pomoTaskLabel;
+
+                    setPomodoroMode(savedMode);
+
+                    if (savedMode === 'stopwatch') {
+                        const startTime = state.stopwatchStartTime || Date.now();
+                        pomoSessionStart = new Date(startTime);
+                        pomoStopwatchSeconds = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
+                    } else {
+                        const targetTime = state.targetEndTime || (Date.now() + 25 * 60 * 1000);
+                        pomoTargetEndTime = targetTime;
+                        pomoSecondsLeft = Math.max(0, Math.round((targetTime - Date.now()) / 1000));
+                        if (savedMode === 'custom') setCustomMinutes(pomoCustomMinutes);
+                    }
+                    pomoIsRunning = true;
+                    if (pomoTimer) clearInterval(pomoTimer);
+                    startPomoWorker();
+                    pomoTimer = setInterval(timerTick, 1000);
+                    updatePomodoroDisplay();
+                    updateCycleProgressDots();
+                }
+            } catch(e) {}
+        }
+
+        // Step 2: Fetch ground-truth state from server to guarantee cross-device accuracy
+        await syncActiveTimerWithServer();
+    } catch(e) {
         console.warn('[Timer] Could not restore timer:', e);
     }
 }
+
 
 function initPomodoroDisplay() {
     updatePomodoroDisplay();
@@ -5996,6 +6074,7 @@ document.addEventListener('visibilitychange', () => {
         if (pomoIsRunning) {
             timerTick();
         }
+        syncActiveTimerWithServer();
         if (currentUserId && sessionToken) {
             checkProactiveNudge();
         }
@@ -6006,6 +6085,7 @@ window.addEventListener('focus', () => {
     if (pomoIsRunning) {
         timerTick();
     }
+    syncActiveTimerWithServer();
     if (currentUserId && sessionToken) {
         checkProactiveNudge();
     }
@@ -6015,4 +6095,11 @@ window.addEventListener('pageshow', () => {
     if (pomoIsRunning) {
         timerTick();
     }
+    syncActiveTimerWithServer();
 });
+
+// Periodic cross-device timer synchronization (every 12 seconds)
+setInterval(() => {
+    syncActiveTimerWithServer();
+}, 12000);
+

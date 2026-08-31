@@ -3440,6 +3440,48 @@ def chat():
                         set_academic_state(user_id, 'holiday', h_start, h_end, h_reason, '', conn=write_conn)
                     elif atype == "resume_regular_classes":
                         set_academic_state(user_id, 'regular', '', '', 'Regular classes resumed', '', conn=write_conn)
+                    elif atype == "start_stopwatch":
+                        s_task = action.get("task") or action.get("title") or "Activity Sprint"
+                        now_ms = int(time.time() * 1000)
+                        now_iso = datetime.now().isoformat()
+                        c.execute('''
+                            INSERT INTO active_timer_state (id, mode, task, custom_minutes, cycles, cycles_done, start_time_ms, target_end_time_ms, is_running, updated_at)
+                            VALUES (1, 'stopwatch', ?, 0, 1, 0, ?, 0, 1, ?)
+                            ON CONFLICT(id) DO UPDATE SET
+                                mode='stopwatch', task=excluded.task, custom_minutes=0, cycles=1, cycles_done=0,
+                                start_time_ms=excluded.start_time_ms, target_end_time_ms=0, is_running=1, updated_at=excluded.updated_at
+                        ''', (s_task, now_ms, now_iso))
+                    elif atype == "start_timer":
+                        t_mins = int(action.get("minutes", 25))
+                        t_task = action.get("task") or action.get("title") or "Focus Sprint"
+                        t_mode = action.get("mode") or ("custom" if t_mins != 25 else "focus")
+                        t_cycles = int(action.get("cycles", 1))
+                        now_ms = int(time.time() * 1000)
+                        target_end_ms = now_ms + (t_mins * 60 * 1000)
+                        now_iso = datetime.now().isoformat()
+                        c.execute('''
+                            INSERT INTO active_timer_state (id, mode, task, custom_minutes, cycles, cycles_done, start_time_ms, target_end_time_ms, is_running, updated_at)
+                            VALUES (1, ?, ?, ?, ?, 0, ?, ?, 1, ?)
+                            ON CONFLICT(id) DO UPDATE SET
+                                mode=excluded.mode, task=excluded.task, custom_minutes=excluded.custom_minutes,
+                                cycles=excluded.cycles, cycles_done=0, start_time_ms=excluded.start_time_ms,
+                                target_end_time_ms=excluded.target_end_time_ms, is_running=1, updated_at=excluded.updated_at
+                        ''', (t_mode, t_task, t_mins, t_cycles, now_ms, target_end_ms, now_iso))
+                    elif atype == "stop_timer":
+                        cur_timer = c.execute('SELECT * FROM active_timer_state WHERE id = 1').fetchone()
+                        c.execute('DELETE FROM active_timer_state WHERE id = 1')
+                        if cur_timer and cur_timer['is_running'] and cur_timer['start_time_ms']:
+                            cur_mode = cur_timer['mode'] or 'focus'
+                            s_ms = int(cur_timer['start_time_ms'])
+                            now_ms = int(time.time() * 1000)
+                            elapsed_secs = max(0, int((now_ms - s_ms) / 1000))
+                            elapsed_mins = max(1, round(elapsed_secs / 60))
+                            t_label = action.get("task") or cur_timer['task'] or ("Activity Sprint" if cur_mode == 'stopwatch' else "Focus Session")
+                            started_iso = cur_timer['updated_at'] or datetime.now().isoformat()
+                            c.execute('''
+                                INSERT INTO focus_sessions (task_label, cycles_planned, cycles_done, total_minutes, date, started_at)
+                                VALUES (?, ?, 1, ?, ?, ?)
+                            ''', (t_label, cur_timer['cycles'] or 1, elapsed_mins, date.today().isoformat(), started_iso))
                     elif atype == "adjust_focus_session":
                         c_mins = int(action.get('minutes', 480))
                         c_task = action.get('task', 'Sleep Tracking')
@@ -4099,7 +4141,8 @@ def api_active_timer():
                 'start_time_ms': row['start_time_ms'],
                 'target_end_time_ms': row['target_end_time_ms'],
                 'is_running': bool(row['is_running']),
-                'updated_at': row['updated_at']
+                'updated_at': row['updated_at'],
+                'server_time_ms': int(time.time() * 1000)
             })
         except Exception as e:
             conn.close()
